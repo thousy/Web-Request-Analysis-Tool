@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:">
+  <title>Web Request Analysis Tool — 网页请求分析工具</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body data-theme="light">
+
+  <!-- ══ 顶部标题栏 ══════════════════════════════════════════════════════════ -->
+  <header class="app-header">
+    <div class="logo">
+      <div class="logo-icon">
+        <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="16" cy="16" r="14" stroke="url(#g1)" stroke-width="2"/>
+          <circle cx="16" cy="16" r="6" fill="url(#g1)" opacity="0.8"/>
+          <line x1="2" y1="16" x2="30" y2="16" stroke="url(#g1)" stroke-width="1.5" stroke-dasharray="2 2"/>
+          <line x1="16" y1="2" x2="16" y2="30" stroke="url(#g1)" stroke-width="1.5" stroke-dasharray="2 2"/>
+          <defs>
+            <linearGradient id="g1" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
+              <stop stop-color="#818cf8"/>
+              <stop offset="1" stop-color="#a78bfa"/>
+            </linearGradient>
+          </defs>
+        </svg>
+      </div>
+      <span class="logo-text">Web Request Analysis Tool</span>
+      <span class="header-badge">网页请求分析工具</span>
+    </div>
+    <div class="header-right">
+      <button id="themeToggle" class="theme-toggle-btn" title="切换主题">
+        <svg class="sun-icon hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+        <svg class="moon-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- ══ 主体内容 ════════════════════════════════════════════════════════════ -->
+  <main class="app-main">
+
+    <!-- ── URL 输入区 ────────────────────────────────────────────────────── -->
+    <section class="input-section">
+      <div class="url-bar">
+        <div class="url-icon">
+          <svg viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.5"/><path d="M10 2C10 2 7 6 7 10C7 14 10 18 10 18" stroke="currentColor" stroke-width="1.5"/><path d="M10 2C10 2 13 6 13 10C13 14 10 18 10 18" stroke="currentColor" stroke-width="1.5"/><path d="M2 10H18" stroke="currentColor" stroke-width="1.5"/></svg>
+        </div>
+        <input
+          id="urlInput"
+          type="text"
+          placeholder="输入网址，例如：https://www.example.com"
+          autocomplete="off"
+          spellcheck="false"
+        />
+        <div class="timeout-wrap">
+          <label class="timeout-label">超时</label>
+          <select id="timeoutSelect">
+            <option value="15">15s</option>
+            <option value="30" selected>30s</option>
+            <option value="60">60s</option>
+            <option value="120">120s</option>
+          </select>
+        </div>
+        <button id="analyzeBtn" class="btn-analyze">
+          <svg class="btn-icon" viewBox="0 0 20 20" fill="none"><path d="M10 3L17 10L10 17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M3 10H17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          <span class="btn-text">开始分析</span>
+          <span class="btn-spinner"></span>
+        </button>
+      </div>
+      <div id="analysisStatus" class="analysis-status hidden">
+        <span class="status-dot"></span>
+        <span id="statusText">正在加载页面，实时捕获请求...</span>
+      </div>
+    </section>
+
+    <!-- ── 统计卡片 ────────────────────────────────────────────────────────── -->
+    <section class="stats-section">
+      <div class="stat-card" id="cardTotal">
+        <div class="stat-icon stat-icon-total">
+          <svg viewBox="0 0 20 20" fill="none"><rect x="3" y="3" width="14" height="14" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M7 10H13M7 7H13M7 13H10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        </div>
+        <div class="stat-body">
+          <div class="stat-number" id="totalCount">0</div>
+          <div class="stat-label">总请求数</div>
+        </div>
+      </div>
+      <div class="stat-card" id="cardSuccess">
+        <div class="stat-icon stat-icon-success">
+          <svg viewBox="0 0 20 20" fill="none"><path d="M4 10L8 14L16 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.5"/></svg>
+        </div>
+        <div class="stat-body">
+          <div class="stat-number" id="successCount">0</div>
+          <div class="stat-label">连接成功</div>
+        </div>
+      </div>
+      <div class="stat-card" id="cardFailed">
+        <div class="stat-icon stat-icon-failed">
+          <svg viewBox="0 0 20 20" fill="none"><path d="M7 7L13 13M13 7L7 13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.5"/></svg>
+        </div>
+        <div class="stat-body">
+          <div class="stat-number" id="failedCount">0</div>
+          <div class="stat-label">连接失败</div>
+        </div>
+      </div>
+      <div class="stat-card" id="cardIp">
+        <div class="stat-icon stat-icon-ip">
+          <svg viewBox="0 0 20 20" fill="none"><rect x="2" y="6" width="16" height="8" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M6 10H14M10 8V12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        </div>
+        <div class="stat-body">
+          <div class="stat-number" id="ipCount">0</div>
+          <div class="stat-label">唯一 IP</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── 工具栏 ──────────────────────────────────────────────────────────── -->
+    <section class="toolbar">
+      <div class="filter-group">
+        <button class="filter-btn active" data-filter="all">全部</button>
+        <button class="filter-btn" data-filter="success">
+          <span class="dot dot-success"></span>成功
+        </button>
+        <button class="filter-btn" data-filter="failed">
+          <span class="dot dot-failed"></span>失败
+        </button>
+      </div>
+      <div class="search-box">
+        <svg viewBox="0 0 20 20" fill="none"><circle cx="8.5" cy="8.5" r="5.5" stroke="currentColor" stroke-width="1.5"/><path d="M15 15L12 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        <input id="searchInput" type="text" placeholder="搜索 URL、IP 地址...">
+      </div>
+      <div class="export-group">
+        <button id="btnHistory" class="btn-export" title="查看历史分析记录">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+          历史
+        </button>
+        <button id="exportJson" class="btn-export">
+          <svg viewBox="0 0 20 20" fill="none"><path d="M4 16H16M10 4V12M10 12L7 9M10 12L13 9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          JSON
+        </button>
+        <button id="exportCsv" class="btn-export">
+          <svg viewBox="0 0 20 20" fill="none"><path d="M4 16H16M10 4V12M10 12L7 9M10 12L13 9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          CSV
+        </button>
+        <button id="toggleScreenshot" class="btn-export" title="查看页面截图">
+          <svg viewBox="0 0 20 20" fill="none"><rect x="2" y="4" width="16" height="12" rx="2" stroke="currentColor" stroke-width="1.5"/><circle cx="10" cy="10" r="3" stroke="currentColor" stroke-width="1.5"/></svg>
+          截图
+        </button>
+      </div>
+    </section>
+
+    <!-- ── 请求列表 + 截图预览（弹性布局） ─────────────────────────────────── -->
+    <div class="content-area">
+
+      <!-- 列表容器 -->
+      <section class="list-section">
+        <!-- 列头 -->
+        <div class="list-header">
+          <div class="col col-id">#</div>
+          <div class="col col-status">状态</div>
+          <div class="col col-url">请求 URL</div>
+          <div class="col col-method">方法</div>
+          <div class="col col-ip">IP 地址</div>
+          <div class="col col-port">端口</div>
+          <div class="col col-type">资源类型</div>
+          <div class="col col-code">HTTP 状态</div>
+          <div class="col col-action">控制</div>
+        </div>
+
+        <!-- 滚动列表体 -->
+        <div id="requestList" class="request-list">
+          <!-- 空状态 -->
+          <div class="empty-state" id="emptyState">
+            <div class="empty-orb"></div>
+            <div class="empty-title">等待分析</div>
+            <div class="empty-desc">输入网址后点击「开始分析」，工具将自动加载页面并实时捕获所有网络请求</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 左右拖动分割条 -->
+      <div id="panelResizer" class="panel-resizer" title="左右拖动调整两栏宽度"></div>
+
+      <!-- 网页实时预览与截图回载面板 -->
+      <aside id="previewPanel" class="preview-panel">
+        <div class="preview-header">
+          <div class="preview-title" id="previewTitle">网页实时预览</div>
+          <div class="preview-controls">
+            <button id="btnWebviewBack" class="icon-btn" title="后退">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+            </button>
+            <button id="btnWebviewForward" class="icon-btn" title="前进">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
+            </button>
+            <button id="btnWebviewReload" class="icon-btn" title="刷新网页 (应用过滤规则)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
+            </button>
+            <button id="btnWebviewExpand" class="icon-btn" title="在新大窗口中放大预览网页 (共享过滤规则)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M21 3l-6 6M9 3H3v6M3 3l6 6M15 21h6v-6M21 21l-6-6M9 21H3v-6M3 21l6-6"/></svg>
+            </button>
+            <button id="btnExitHistory" class="btn-exit-history hidden" title="返回实时网页预览">
+              退出历史查看
+            </button>
+          </div>
+        </div>
+        <div class="preview-body" style="position:relative; width:100%;">
+          <!-- 实时交互浏览器视口 -->
+          <webview id="previewWebview" partition="persist:preview" src="about:blank" style="width:100%; height:100%; border:none; background:#fff;"></webview>
+          
+          <!-- 历史静态截图遮罩层 -->
+          <div id="screenshotOverlay" class="screenshot-overlay hidden" title="点击图片显示高清大图">
+            <img id="screenshotImg" src="" alt="网页历史分析快照">
+            <div class="overlay-badge">历史快照 · 点击查看大图</div>
+          </div>
+        </div>
+      </aside>
+    </div>
+
+  </main>
+
+  <!-- ══ 历史记录抽屉 ═════════════════════════════════════════════════════════ -->
+  <div id="historyBackdrop" class="history-backdrop hidden"></div>
+  <aside id="historyDrawer" class="history-drawer hidden">
+    <div class="drawer-header">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span>历史分析记录</span>
+        <button id="btnClearAllHistory" class="btn-clear-all-history hidden" title="清空所有历史分析记录">清空</button>
+      </div>
+      <button id="closeHistory" class="icon-btn" title="关闭">
+        <svg viewBox="0 0 20 20" fill="none"><path d="M5 5L15 15M15 5L5 15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <div id="historyList" class="drawer-body">
+      <!-- 动态加载历史项 -->
+      <div class="empty-history" id="emptyHistory">
+        <span>暂无历史记录</span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ══ 详情弹窗 ═══════════════════════════════════════════════════════════ -->
+  <div id="detailModal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-backdrop" id="modalBackdrop"></div>
+    <div class="modal-box">
+      <div class="modal-header">
+        <h2 class="modal-title">请求详情</h2>
+        <button id="closeModal" class="icon-btn">
+          <svg viewBox="0 0 20 20" fill="none"><path d="M5 5L15 15M15 5L5 15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <div id="detailContent" class="modal-body"></div>
+    </div>
+  </div>
+
+  <!-- ══ 唯一 IP 聚合详情弹窗 ═════════════════════════════════════════════════ -->
+  <div id="ipModal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-backdrop" id="ipModalBackdrop"></div>
+    <div class="modal-box" style="max-width: 580px;">
+      <div class="modal-header">
+        <h2 class="modal-title">唯一 IP 聚合分析</h2>
+        <button id="closeIpModal" class="icon-btn">
+          <svg viewBox="0 0 20 20" fill="none"><path d="M5 5L15 15M15 5L5 15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <div id="ipContent" class="modal-body"></div>
+    </div>
+  </div>
+
+  <!-- ══ Toast 通知 ═════════════════════════════════════════════════════════ -->
+  <div id="toast" class="toast" role="alert"></div>
+
+  <!-- ══ 大图查看器 Lightbox ═════════════════════════════════════════════════ -->
+  <div id="imageLightbox" class="lightbox hidden" role="dialog" aria-label="大图查看">
+    <div class="lightbox-backdrop" id="lightboxBackdrop"></div>
+    <div class="lightbox-content">
+      <img id="lightboxImg" src="" alt="高清大图">
+    </div>
+    <button id="closeLightbox" class="lightbox-close" title="关闭大图">
+      <svg viewBox="0 0 20 20" fill="none"><path d="M5 5L15 15M15 5L5 15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    </button>
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>
