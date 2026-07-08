@@ -31,7 +31,7 @@
       "icon": "icon.ico",
       "target": [
         {
-          "target": "portable",
+          "target": "nsis",
           "arch": [
             "x64"
           ]
