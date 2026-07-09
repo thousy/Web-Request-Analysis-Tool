@@ -7,6 +7,7 @@ const dns = require('dns');
 // 忽略证书错误开关，必须在 app ready 之前调用，以防证书失效导致连接失败或卡死
 app.commandLine.appendSwitch('ignore-certificate-errors', 'true');
 app.commandLine.appendSwitch('allow-insecure-localhost', 'true');
+app.commandLine.appendSwitch('disable-features', 'AsyncDns');
 
 // 全局监听忽略证书验证错误，确保自签名证书或无效证书的 IP 链接能够顺利建立连接
 app.on('certificate-error', (event, webContents, url, error, certificate, callback) => {
@@ -307,7 +308,7 @@ function createMenu() {
               type: 'info',
               title: '关于 Web Request Analysis Tool',
               message: 'Web Request Analysis Tool 网页请求分析工具',
-              detail: '版本 V1.1\n基于 Electron Native WebRequest 构建\n© YouQian Tech'
+              detail: '版本 V1.2\n基于 Electron Native WebRequest 构建\n© YouQian Tech'
             });
           }
         }

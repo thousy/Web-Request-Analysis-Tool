@@ -254,7 +254,9 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!reloadUrl || reloadUrl === 'about:blank') {
       reloadUrl = urlInput.value.trim();
       if (reloadUrl && !/^https?:\/\//i.test(reloadUrl)) {
-        reloadUrl = 'https://' + reloadUrl;
+        const ipRegex = /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}(?::\d+)?$/;
+        const isLocal = ipRegex.test(reloadUrl) || reloadUrl.toLowerCase().startsWith('localhost');
+        reloadUrl = (isLocal ? 'http://' : 'https://') + reloadUrl;
       }
     }
 
@@ -368,7 +370,11 @@ async function startAnalysis() {
     return;
   }
 
-  if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+  if (!/^https?:\/\//i.test(url)) {
+    const ipRegex = /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}(?::\d+)?$/;
+    const isLocal = ipRegex.test(url) || url.toLowerCase().startsWith('localhost');
+    url = (isLocal ? 'http://' : 'https://') + url;
+  }
   
   // 确保退出历史状态
   exitHistoryMode();
