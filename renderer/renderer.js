@@ -1014,12 +1014,17 @@ function bindWebviewEvents() {
     }
   });
 
-  previewWebview.addEventListener('did-fail-load', () => {
+  previewWebview.addEventListener('did-fail-load', (e) => {
+    // 过滤掉非主框架的加载失败，以及因为跳转、重定向或用户手动停止导致的加载取消（-3 ERR_ABORTED）
+    if (!e.isMainFrame || e.errorCode === -3) {
+      return;
+    }
+
     if (isCapturing) {
       setAnalyzingUI(false);
       isCapturing = false;
       updateStatusText();
-      showToast('网页加载失败，请检查网址或网络连接', 'error');
+      showToast(`网页加载失败，请检查网址或网络连接 (${e.errorDescription || e.errorCode})`, 'error');
     }
   });
 
