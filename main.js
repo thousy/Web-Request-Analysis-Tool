@@ -308,7 +308,7 @@ function createMenu() {
               type: 'info',
               title: '关于 Web Request Analysis Tool',
               message: 'Web Request Analysis Tool 网页请求分析工具',
-              detail: '版本 V1.2\n基于 Electron Native WebRequest 构建\n© YouQian Tech'
+              detail: '版本 V1.2.2\n基于 Electron Native WebRequest 构建\n© YouQian Tech'
             });
           }
         }

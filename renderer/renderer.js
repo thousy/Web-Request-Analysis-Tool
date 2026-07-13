@@ -389,6 +389,7 @@ async function startAnalysis() {
     newWebview = document.createElement('webview');
     newWebview.id = 'previewWebview';
     newWebview.partition = 'persist:preview';
+    newWebview.allowpopups = true;
     // 去掉 src="about:blank" 以防 did-stop-loading 提前把 captures 关掉
     newWebview.style.cssText = 'width:100%; height:100%; border:none; background:#fff;';
     
@@ -1056,4 +1057,22 @@ function bindWebviewEvents() {
     // 页面完全载入后恢复阻断状态，确保用户在网页上进行点击等操作时，拦截依然有效
     window.electronAPI.updateBlockingState({ rules: blockRules, bypass: false });
   });
+
+  // 拦截并接管 webview 中由于 target="_blank" 或 window.open 发起的新窗口打开事件
+  // 将其强制在当前预览 webview 中直接导航，解决跳转无反应的问题
+  const handleNewWindowRedirect = (e) => {
+    e.preventDefault();
+    const targetUrl = e.url || (e.detail && e.detail.url);
+    if (targetUrl && targetUrl !== 'about:blank') {
+      try {
+        previewWebview.loadURL(targetUrl);
+      } catch (err) {
+        console.error('Failed to load redirect URL from new-window:', err);
+        previewWebview.src = targetUrl;
+      }
+    }
+  };
+
+  previewWebview.addEventListener('new-window', handleNewWindowRedirect);
+  previewWebview.addEventListener('create-window', handleNewWindowRedirect);
 }

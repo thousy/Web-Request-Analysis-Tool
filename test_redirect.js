@@ -243,10 +243,7 @@ const server = http.createServer((req, res) => {
         <div class="container">
           <div class="card">
             <span class="header-badge">跳转测试服务器已就绪</span>
-            <h1>跳转与重定向测试控制台</h1>
-            <p>本服务器在本地 3000 端口运行，专门用于测试网页请求分析工具在处理各种网页跳转和重定向（302 重定向、Meta 刷新重定向、JavaScript 定向）时的稳定性与全量抓取功能。请将下方任意跳转 URL 复制并填入分析工具的输入框中进行分析。</p>
-            
-            <!-- 测试项 1 -->
+                      <!-- 测试项 1 -->
             <div class="test-item">
               <div class="test-info">
                 <div class="test-title">① HTTP 302 临时重定向</div>
@@ -291,6 +288,66 @@ const server = http.createServer((req, res) => {
               </div>
             </div>
 
+            <!-- 跨域测试项 4 -->
+            <div class="test-item">
+              <div class="test-info">
+                <div class="test-title">④ 跨域 HTTP 302 重定向 (127.0.0.1 -> 127.0.0.2)</div>
+                <div class="test-desc">测试从 127.0.0.1 重定向到 127.0.0.2。这属于完全跨域的物理 IP 跳转。</div>
+                <div class="url-box">
+                  <span id="url-cross-302">http://127.0.0.1:3000/cross-302</span>
+                  <button class="btn-copy" onclick="copyUrl('url-cross-302')">复制</button>
+                </div>
+              </div>
+              <div class="action-area">
+                <a href="http://127.0.0.1:3000/cross-302" target="_blank" class="btn btn-test outline">浏览器打开</a>
+              </div>
+            </div>
+
+            <!-- 跨域测试项 5 -->
+            <div class="test-item">
+              <div class="test-info">
+                <div class="test-title">⑤ 跨域 HTML Meta 刷新跳转 (127.0.0.1 -> 127.0.0.2)</div>
+                <div class="test-desc">使用 &lt;meta http-equiv="refresh" content="0;url=http://127.0.0.2:3000/b"&gt; 进行跨域跳转。</div>
+                <div class="url-box">
+                  <span id="url-cross-meta">http://127.0.0.1:3000/cross-meta</span>
+                  <button class="btn-copy" onclick="copyUrl('url-cross-meta')">复制</button>
+                </div>
+              </div>
+              <div class="action-area">
+                <a href="http://127.0.0.1:3000/cross-meta" target="_blank" class="btn btn-test outline">浏览器打开</a>
+              </div>
+            </div>
+
+            <!-- 跨域测试项 6 -->
+            <div class="test-item">
+              <div class="test-info">
+                <div class="test-title">⑥ 跨域 JS location.href 跳转 (127.0.0.1 -> 127.0.0.2)</div>
+                <div class="test-desc">使用 JS 代码修改 window.location.href 实现跨 IP 跳转。</div>
+                <div class="url-box">
+                  <span id="url-cross-js">http://127.0.0.1:3000/cross-js</span>
+                  <button class="btn-copy" onclick="copyUrl('url-cross-js')">复制</button>
+                </div>
+              </div>
+              <div class="action-area">
+                <a href="http://127.0.0.1:3000/cross-js" target="_blank" class="btn btn-test outline">浏览器打开</a>
+              </div>
+            </div>
+
+            <!-- 跨域测试项 7 -->
+            <div class="test-item">
+              <div class="test-info">
+                <div class="test-title">⑦ 跨域 target="_blank" 点击跳转 (127.0.0.1 -> 127.0.0.2)</div>
+                <div class="test-desc">使用 target="_blank" 属性的新窗口点击链接。测试 Webview 新窗口/弹出窗口拦截与重定向。</div>
+                <div class="url-box">
+                  <span id="url-cross-blank">http://127.0.0.1:3000/cross-blank</span>
+                  <button class="btn-copy" onclick="copyUrl('url-cross-blank')">复制</button>
+                </div>
+              </div>
+              <div class="action-area">
+                <a href="http://127.0.0.1:3000/cross-blank" target="_blank" class="btn btn-test outline">浏览器打开</a>
+              </div>
+            </div>
+
           </div>
         </div>
 
@@ -319,6 +376,12 @@ const server = http.createServer((req, res) => {
     res.end();
   }
 
+  // ─── 2.1 跨域 HTTP 302 重定向 ─────────────────────────────────────────────────────
+  else if (pathname === '/cross-302') {
+    res.writeHead(302, { 'Location': 'http://127.0.0.2:3000/b' });
+    res.end();
+  }
+
   // ─── 3. HTML Meta 刷新跳转 ──────────────────────────────────────────────────
   else if (pathname === '/a2') {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -330,7 +393,7 @@ const server = http.createServer((req, res) => {
         <meta http-equiv="refresh" content="0;url=/b">
         <title>页面 A (HTML Meta 刷新)...</title>
         <style>
-          ${commonStyle}
+          \${commonStyle}
           .spinner {
             width: 50px;
             height: 50px;
@@ -358,6 +421,45 @@ const server = http.createServer((req, res) => {
     `);
   }
 
+  // ─── 3.1 跨域 HTML Meta 刷新跳转 ──────────────────────────────────────────────────
+  else if (pathname === '/cross-meta') {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <meta http-equiv="refresh" content="0;url=http://127.0.0.2:3000/b">
+        <title>页面 A (HTML Meta 跨域刷新)...</title>
+        <style>
+          \${commonStyle}
+          .spinner {
+            width: 50px;
+            height: 50px;
+            border: 3px solid rgba(129, 140, 248, 0.1);
+            border-radius: 50%;
+            border-top-color: var(--accent);
+            animation: spin 1s ease-in-out infinite;
+            margin: 20px auto 0 auto;
+          }
+          @keyframes spin {
+            to { transform: rotate(360deg); }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="card">
+            <h1>正在跨域重定向 (Meta)</h1>
+            <p>正在重定向到 127.0.0.2 目标页面 B (HTML Meta 方式)...</p>
+            <div class="spinner"></div>
+          </div>
+        </div>
+      </body>
+      </html>
+    `);
+  }
+
   // ─── 4. JavaScript window.location 跳转 ──────────────────────────────────────────
   else if (pathname === '/a3') {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -368,7 +470,7 @@ const server = http.createServer((req, res) => {
         <meta charset="UTF-8">
         <title>页面 A (JS 跳转)...</title>
         <style>
-          ${commonStyle}
+          \${commonStyle}
           .spinner {
             width: 50px;
             height: 50px;
@@ -402,6 +504,75 @@ const server = http.createServer((req, res) => {
     `);
   }
 
+  // ─── 4.1 跨域 JavaScript window.location 跳转 ──────────────────────────────────────────
+  else if (pathname === '/cross-js') {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <title>页面 A (跨域 JS 跳转)...</title>
+        <style>
+          \${commonStyle}
+          .spinner {
+            width: 50px;
+            height: 50px;
+            border: 3px solid rgba(129, 140, 248, 0.1);
+            border-radius: 50%;
+            border-top-color: var(--accent);
+            animation: spin 1s ease-in-out infinite;
+            margin: 20px auto 0 auto;
+          }
+          @keyframes spin {
+            to { transform: rotate(360deg); }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="card">
+            <h1>正在跨域重定向 (JS)</h1>
+            <p>正在重定向到 127.0.0.2 目标页面 B (JavaScript window.location 方式)...</p>
+            <div class="spinner"></div>
+          </div>
+        </div>
+        <script>
+          setTimeout(() => {
+            window.location.href = 'http://127.0.0.2:3000/b';
+          }, 100);
+        </script>
+      </body>
+      </html>
+    `);
+  }
+
+  // ─── 4.2 跨域 target="_blank" 页面 ──────────────────────────────────────────
+  else if (pathname === '/cross-blank') {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <title>页面 A (target="_blank" 跨域)...</title>
+        <style>
+          \${commonStyle}
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="card">
+            <h1>跨域 target="_blank" 测试</h1>
+            <p>点击下方按钮，将尝试通过 <code>target="_blank"</code> 打开 127.0.0.2 上的页面 B。</p>
+            <a href="http://127.0.0.2:3000/b" target="_blank" class="btn">点击跳转</a>
+          </div>
+        </div>
+      </body>
+      </html>
+    `);
+  }
+  
   // ─── 5. 目标页面 B ─────────────────────────────────────────────────────────
   else if (pathname === '/b') {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
