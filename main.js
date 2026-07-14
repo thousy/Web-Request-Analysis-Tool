@@ -93,6 +93,7 @@ function setupWebRequestSniffer() {
   ses.webRequest.onBeforeRequest(null);
   ses.webRequest.onResponseStarted(null);
   ses.webRequest.onErrorOccurred(null);
+  ses.webRequest.onBeforeRedirect(null);
 
   // 忽略自定义 session 内的证书错误，确保自签名 IP 或域名能够访问
   ses.setCertificateVerifyProc((request, callback) => {
@@ -233,6 +234,63 @@ function setupWebRequestSniffer() {
       sendRecord(fallback.ipAddress);
     }
   });
+
+  // 4. 重定向发生时：捕获重定向源请求
+  ses.webRequest.onBeforeRedirect(filter, (details) => {
+    let port = null;
+    try {
+      const parsed = new URL(details.url);
+      port = parsed.port || (parsed.protocol === 'https:' ? '443' : '80');
+    } catch (_) {}
+
+    let ipAddress = details.ip || '缓存';
+    if (!details.ip || details.ip === '') {
+      const fallback = getFallbackIpAndPort(details.url);
+      if (fallback.ipAddress) {
+        ipAddress = fallback.ipAddress;
+      }
+    }
+
+    const sendRedirectRecord = (ip) => {
+      // 附加重定向标记后缀，确保唯一性，避免在渲染层被重定向后的同名请求覆盖
+      const uniqueId = `${details.id}_redirect_${Date.now()}`;
+      
+      let statusText = 'Redirect';
+      if (details.statusCode === 301) statusText = 'Moved Permanently';
+      else if (details.statusCode === 302) statusText = 'Found';
+      else if (details.statusCode === 303) statusText = 'See Other';
+      else if (details.statusCode === 307) statusText = 'Temporary Redirect';
+      else if (details.statusCode === 308) statusText = 'Permanent Redirect';
+
+      sendToRenderer('request-captured', {
+        requestId: uniqueId,
+        url: details.url,
+        method: details.method,
+        status: details.statusCode,
+        statusText: statusText,
+        ipAddress: ip,
+        port: port,
+        resourceType: details.resourceType,
+        success: true,
+        error: null,
+        isBlocked: false,
+        timestamp: Date.now()
+      });
+    };
+
+    if (!details.ip && ipAddress !== '缓存') {
+      try {
+        const parsed = new URL(details.url);
+        dns.lookup(parsed.hostname, (err, address) => {
+          sendRedirectRecord(err ? ipAddress : address);
+        });
+      } catch (_) {
+        sendRedirectRecord(ipAddress);
+      }
+    } else {
+      sendRedirectRecord(ipAddress);
+    }
+  });
 }
 
 // ─── 创建主窗口 ──────────────────────────────────────────────────────────────
@@ -308,7 +366,7 @@ function createMenu() {
               type: 'info',
               title: '关于 Web Request Analysis Tool',
               message: 'Web Request Analysis Tool 网页请求分析工具',
-              detail: '版本 V1.2.2\n基于 Electron Native WebRequest 构建\n© YouQian Tech'
+              detail: '版本 V1.2.3\n基于 Electron Native WebRequest 构建\n© YouQian Tech'
             });
           }
         }

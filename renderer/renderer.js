@@ -1041,7 +1041,7 @@ function bindWebviewEvents() {
           currentScreenshot = image.toDataURL('image/jpeg', 0.7);
           
           // 自动调用 IPC 写入历史记录归档
-          let url = previewWebview.getURL();
+          let url = urlInput.value.trim() || previewWebview.getURL();
           if (url && url !== 'about:blank') {
             window.electronAPI.saveHistory({
               url: url,
