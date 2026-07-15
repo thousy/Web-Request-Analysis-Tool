@@ -1,6 +1,6 @@
 {
   "name": "web-request-analysis-tool",
-  "version": "1.2.3",
+  "version": "1.2.4",
   "description": "网页网络请求分析工具 — 捕获页面所有请求的 URL、IP、端口与成功/失败状态",
   "main": "main.js",
   "scripts": {
