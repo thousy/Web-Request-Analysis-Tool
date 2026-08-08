@@ -15,6 +15,7 @@ let currentScreenshot = ''; // 存入当前完全加载后的 webview 截图 Bas
 let isHistoryMode    = false;
 let isCapturing      = false; // 标识是否处于捕获状态（仅在点击“分析网页”加载期间）
 let originalAnalysisUrl = ''; // 存放最初发起分析的原始 URL，用于防退化历史归档
+let activeCaptureNavigationUrl = ''; // 当前捕获轮次对应的主框架导航地址，用于导航事件去重
 
 // 从本地加载阻断规则
 try {
@@ -226,23 +227,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // 网页预览浏览器控制器
   btnWebviewBack.addEventListener('click', () => {
-    isCapturing = false;
-    setAnalyzingUI(false);
-    updateStatusText();
-    if (previewWebview.canGoBack()) previewWebview.goBack();
+    if (previewWebview.canGoBack()) {
+      beginPreviewCapture();
+      previewWebview.goBack();
+    }
   });
   btnWebviewForward.addEventListener('click', () => {
-    isCapturing = false;
-    setAnalyzingUI(false);
-    updateStatusText();
-    if (previewWebview.canGoForward()) previewWebview.goForward();
+    if (previewWebview.canGoForward()) {
+      beginPreviewCapture();
+      previewWebview.goForward();
+    }
   });
   btnWebviewReload.addEventListener('click', () => {
-    isCapturing = false;
-    setAnalyzingUI(false);
-    updateStatusText();
+    // 每次刷新都作为一轮新的页面分析，清除旧请求并立即开启捕获。
+    beginPreviewCapture();
 
-    // 开启拦截模式并刷新内嵌 webview，但不清空捕获列表
+    // 开启拦截模式并刷新内嵌 webview。
     window.electronAPI.updateBlockingState({ rules: blockRules, bypass: false });
 
     // 强力刷新：优先读取当前 URL 强行导航，若读取不到或无效，回退读取输入框最新 URL 并强制加载
@@ -399,8 +399,7 @@ async function startAnalysis() {
   } catch (_) {}
 
   // 3. 缓存清理完毕，重置列表、开启捕获
-  clearListAndReset();
-  isCapturing = true; 
+  beginPreviewCapture(url);
 
   // 4. 轮询等待 Webview Custom Element 升级就绪并安全调用 loadURL
   const startWaitTime = Date.now();
@@ -438,6 +437,27 @@ function clearListAndReset() {
   requestList.innerHTML = '';
   requestList.appendChild(emptyState);
   emptyState.classList.remove('hidden');
+}
+
+// 开始捕获预览区当前页面的一轮新请求。用于手动刷新、前进/后退以及网页内部跳转。
+function beginPreviewCapture(navigationUrl = '') {
+  if (isHistoryMode) return;
+
+  const captureUrl = navigationUrl && navigationUrl !== 'about:blank' ? navigationUrl : '';
+  // will-navigate 与 did-start-navigation 会为同一次跳转连续触发；只初始化一次，
+  // 避免在首批网络请求已经进入时再次清空列表。
+  if (isCapturing && captureUrl && activeCaptureNavigationUrl === captureUrl) {
+    return;
+  }
+
+  if (captureUrl) {
+    originalAnalysisUrl = captureUrl;
+  }
+  activeCaptureNavigationUrl = captureUrl;
+  clearListAndReset();
+  isCapturing = true;
+  setAnalyzingUI(true);
+  updateStatusText();
 }
 
 // ─── UI 交互切换 ───────────────────────────────────────────────────────────────
@@ -1011,6 +1031,19 @@ function bindWebviewEvents() {
     if (e.url && e.url !== 'about:blank') {
       urlInput.value = e.url;
     }
+  });
+
+  // 对用户点击链接和页面脚本跳转，will-navigate 在网络请求前触发。
+  // 这是重新开始捕获的主入口，避免错过目标页的首批请求。
+  previewWebview.addEventListener('will-navigate', (e) => {
+    if (!isHistoryMode) beginPreviewCapture(e.url);
+  });
+
+  // 用户在预览页点击链接、脚本跳转或浏览器自身发生页面导航时，
+  // 用作 will-navigate 未触发场景的兜底；同页锚点跳转不需要重新抓取。
+  previewWebview.addEventListener('did-start-navigation', (e) => {
+    if (!e.isMainFrame || e.isInPlace || isHistoryMode) return;
+    beginPreviewCapture(e.url);
   });
 
   // 捕获并输出内嵌 Webview 的控制台错误，帮助排查无法跳转或白屏的根源

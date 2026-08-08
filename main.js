@@ -310,7 +310,7 @@ function createWindow() {
     },
     backgroundColor: '#080b14',
     show: false,
-    title: 'Web Request Analysis Tool — 网页请求分析'
+    title: 'WebRequestAnalysisTool V1.2.5 — 网页请求分析'
   });
 
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
