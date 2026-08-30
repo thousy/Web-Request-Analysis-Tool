@@ -36,6 +36,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('request-captured', (_event, data) => callback(data));
   },
 
+  /** 注册独立大窗口导航事件回调（通知主窗口切换新窗口数据） */
+  onPreviewWindowNavigated: (callback) => {
+    ipcRenderer.on('preview-window-navigated', (_event, data) => callback(data));
+  },
+
+  /** 注册主框架新页面导航底层重置会话通知（彻底防跨页数据叠加） */
+  onPageNavigationReset: (callback) => {
+    ipcRenderer.on('page-navigation-reset', (_event, data) => callback(data));
+  },
+
+  /** 注册网页弹出新窗口接管事件（target="_blank" 或 window.open） */
+  onOpenUrlInPreview: (callback) => {
+    ipcRenderer.on('open-url-in-preview', (_event, data) => callback(data));
+  },
+
   /** 移除所有监听器 */
   removeAllListeners: (channel) => {
     ipcRenderer.removeAllListeners(channel);

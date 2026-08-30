@@ -8,6 +8,7 @@ const dns = require('dns');
 app.commandLine.appendSwitch('ignore-certificate-errors', 'true');
 app.commandLine.appendSwitch('allow-insecure-localhost', 'true');
 app.commandLine.appendSwitch('disable-features', 'AsyncDns');
+app.commandLine.appendSwitch('disable-http-cache'); // 禁用 Chromium 磁盘 HTTP 缓存，保障抓包纯净度
 
 // 全局监听忽略证书验证错误，确保自签名证书或无效证书的 IP 链接能够顺利建立连接
 app.on('certificate-error', (event, webContents, url, error, certificate, callback) => {
@@ -19,6 +20,7 @@ let mainWindow;
 let blockRules = [];
 let bypassBlocking = false;
 let activePreviewWindows = [];
+let currentNavigationEpoch = 1; // 单调自增的页面导航代数序列号，消除跨进程时序竞态
 
 const historyDir = path.join(__dirname, 'history_records');
 const indexFile = path.join(historyDir, 'index.json');
@@ -91,6 +93,7 @@ function setupWebRequestSniffer() {
 
   // 清除旧的拦截器
   ses.webRequest.onBeforeRequest(null);
+  ses.webRequest.onBeforeSendHeaders(null);
   ses.webRequest.onResponseStarted(null);
   ses.webRequest.onErrorOccurred(null);
   ses.webRequest.onBeforeRedirect(null);
@@ -100,11 +103,29 @@ function setupWebRequestSniffer() {
     callback(0); // 0 表示信任该证书并通过验证
   });
 
-  // 1. 请求发起前：实施阻断拦截
+  // 0. 发送请求头前：注入无缓存控制头（DevTools Disable Cache 行为），彻底穿透强缓存保证全量抓取
+  ses.webRequest.onBeforeSendHeaders(filter, (details, callback) => {
+    const requestHeaders = details.requestHeaders || {};
+    requestHeaders['Pragma'] = 'no-cache';
+    requestHeaders['Cache-Control'] = 'no-cache';
+    callback({ requestHeaders });
+  });
+
+  // 1. 请求发起前：实施阻断拦截与主框架导航会话代数侦测
   ses.webRequest.onBeforeRequest(filter, (details, callback) => {
     // 忽略渲染层本身的网络
     if (details.resourceType === 'mainFrame' && details.url.startsWith('file://')) {
       return callback({ cancel: false });
+    }
+
+    // 核心底层会话隔离：侦测到任何新的主框架页面文档加载请求，单调自增 Epoch 代数
+    if (details.resourceType === 'mainFrame') {
+      currentNavigationEpoch++;
+      sendToRenderer('page-navigation-reset', {
+        epoch: currentNavigationEpoch,
+        sessionId: currentNavigationEpoch,
+        url: details.url
+      });
     }
 
     const isBlocked = checkBlocked(details.url);
@@ -123,7 +144,9 @@ function setupWebRequestSniffer() {
         success: false,
         error: '已阻断',
         isBlocked: true,
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        navigationEpoch: currentNavigationEpoch,
+        navigationSessionId: currentNavigationEpoch
       });
       return callback({ cancel: true }); // 核心阻断
     }
@@ -175,7 +198,9 @@ function setupWebRequestSniffer() {
         success: true,
         error: null,
         isBlocked: false,
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        navigationEpoch: currentNavigationEpoch,
+        navigationSessionId: currentNavigationEpoch
       });
     };
 
@@ -216,7 +241,9 @@ function setupWebRequestSniffer() {
         success: false,
         error: details.error || '连接失败',
         isBlocked: false,
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        navigationEpoch: currentNavigationEpoch,
+        navigationSessionId: currentNavigationEpoch
       });
     };
 
@@ -274,7 +301,9 @@ function setupWebRequestSniffer() {
         success: true,
         error: null,
         isBlocked: false,
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        navigationEpoch: currentNavigationEpoch,
+        navigationSessionId: currentNavigationEpoch
       });
     };
 
@@ -383,6 +412,33 @@ app.whenReady().then(async () => {
   createWindow();
   createMenu();
   setupWebRequestSniffer(); // 开启网络分析嗅探
+
+  // 全局底层接管所有 WebContents：CDP 彻底停用 Blink 内存缓存与拦截新窗口创建
+  app.on('web-contents-created', (event, contents) => {
+    if (mainWindow && contents === mainWindow.webContents) return;
+
+    // 核心黄金标准：通过 Chrome DevTools Protocol 彻底禁用 Blink 渲染引擎内存缓存与网络缓存
+    // 使得每一次普通点击跳转均穿透内存缓存，发起全量真实网络请求（彻底解决跳转只有7条而刷新52条的巨大落差）
+    const attachNetworkCacheDisabled = async () => {
+      try {
+        if (!contents.isDestroyed() && !contents.debugger.isAttached()) {
+          contents.debugger.attach('1.3');
+          await contents.debugger.sendCommand('Network.enable');
+          await contents.debugger.sendCommand('Network.setCacheDisabled', { cacheDisabled: true });
+        }
+      } catch (_) {}
+    };
+
+    contents.on('did-start-loading', attachNetworkCacheDisabled);
+    attachNetworkCacheDisabled();
+
+    contents.setWindowOpenHandler(({ url: targetUrl }) => {
+      if (targetUrl && targetUrl !== 'about:blank') {
+        sendToRenderer('open-url-in-preview', { url: targetUrl });
+      }
+      return { action: 'deny' }; // 阻止创建独立空白弹窗，统一由主视口在新会话中导航以新页面为主体
+    });
+  });
 });
 
 app.on('window-all-closed', () => {
@@ -433,6 +489,27 @@ ipcMain.on('open-preview-window', (event, url) => {
   });
 
   previewWin.loadURL(url);
+
+  // 监听独立大窗口内的导航跳转与新窗口，跨进程通知主界面以新窗口数据显示
+  previewWin.webContents.on('will-navigate', (e, navUrl) => {
+    if (navUrl && navUrl !== 'about:blank') {
+      sendToRenderer('preview-window-navigated', { url: navUrl });
+    }
+  });
+
+  previewWin.webContents.on('did-start-navigation', (e, navUrl, isInPlace, isMainFrame) => {
+    if (isMainFrame && !isInPlace && navUrl && navUrl !== 'about:blank') {
+      sendToRenderer('preview-window-navigated', { url: navUrl });
+    }
+  });
+
+  previewWin.webContents.setWindowOpenHandler(({ url: targetUrl }) => {
+    if (targetUrl && targetUrl !== 'about:blank') {
+      previewWin.loadURL(targetUrl);
+      sendToRenderer('preview-window-navigated', { url: targetUrl });
+    }
+    return { action: 'deny' };
+  });
 
   // 登记至活跃窗口数组中
   activePreviewWindows.push(previewWin);

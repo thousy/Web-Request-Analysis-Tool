@@ -316,7 +316,20 @@ body {
   background: var(--accent-light);
   animation: pulse 1.5s ease-in-out infinite;
   flex-shrink: 0;
+  transition: background var(--transition), box-shadow var(--transition);
 }
+
+.status-dot.live {
+  background: #10b981;
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.6);
+  animation: pulse-live 1.8s ease-in-out infinite;
+}
+
+@keyframes pulse-live {
+  0%, 100% { opacity: 1; transform: scale(1); box-shadow: 0 0 6px rgba(16, 185, 129, 0.4); }
+  50%       { opacity: 0.45; transform: scale(0.8); box-shadow: 0 0 12px rgba(16, 185, 129, 0.85); }
+}
+
 @keyframes pulse {
   0%, 100% { opacity: 1; transform: scale(1); }
   50%       { opacity: 0.4; transform: scale(0.75); }
@@ -538,6 +551,7 @@ body[data-theme="light"] .stat-card:hover {
 .request-list {
   flex: 1;
   overflow-y: auto;
+  scroll-behavior: smooth;
   scrollbar-width: thin;
   scrollbar-color: var(--border-bright) transparent;
 }
@@ -570,6 +584,41 @@ body[data-theme="light"] .stat-card:hover {
 @keyframes rowIn {
   from { opacity: 0; transform: translateX(-6px); }
   to   { opacity: 1; transform: translateX(0); }
+}
+
+/* 实时捕获高亮微动效 */
+.request-row.new-captured-highlight {
+  animation: captureFlash 1.6s ease-out forwards;
+}
+@keyframes captureFlash {
+  0% {
+    background-color: rgba(99, 102, 241, 0.32);
+    box-shadow: inset 0 0 0 1px rgba(99, 102, 241, 0.6);
+  }
+  60% {
+    background-color: rgba(99, 102, 241, 0.15);
+  }
+  100% {
+    background-color: transparent;
+    box-shadow: none;
+  }
+}
+
+body[data-theme="light"] .request-row.new-captured-highlight {
+  animation: captureFlashLight 1.6s ease-out forwards;
+}
+@keyframes captureFlashLight {
+  0% {
+    background-color: rgba(99, 102, 241, 0.2);
+    box-shadow: inset 0 0 0 1px rgba(99, 102, 241, 0.45);
+  }
+  60% {
+    background-color: rgba(99, 102, 241, 0.08);
+  }
+  100% {
+    background-color: transparent;
+    box-shadow: none;
+  }
 }
 
 /* 状态标签 */

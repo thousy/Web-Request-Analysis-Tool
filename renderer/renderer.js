@@ -7,15 +7,23 @@
 
 
 // ─── 全局状态 ─────────────────────────────────────────────────────────────────
-let allRequests      = [];  // 存放当前次抓取的所有请求
+let allRequests      = [];  // 存放当前会话抓取的所有请求
 let activeFilter     = 'all';
 let searchQuery      = '';
 let blockRules       = [];  // 拦截阻断规则数组 (包含匹配关键字或正则)
 let currentScreenshot = ''; // 存入当前完全加载后的 webview 截图 Base64
 let isHistoryMode    = false;
-let isCapturing      = false; // 标识是否处于捕获状态（仅在点击“分析网页”加载期间）
+let isCapturing      = false; // 标识当前会话是否处于捕获监听状态（在右侧操作时保持开启，支持实时联动）
+let isAnalyzing      = false; // 标识是否处于网页主框架首次或全量加载中（控制顶部按钮加载状态）
 let originalAnalysisUrl = ''; // 存放最初发起分析的原始 URL，用于防退化历史归档
 let activeCaptureNavigationUrl = ''; // 当前捕获轮次对应的主框架导航地址，用于导航事件去重
+let saveSnapshotDebounceTimer = null; // 用户在右侧操作后触发网络请求的防抖快照同步定时器
+let activeNavigationSessionId = null; // 当前正在分析展示的页面导航会话 ID
+let activeNavigationEpoch = 0; // 单调自增的导航代数，用于智能时序自适应对齐，消除丢包
+let isHistoryNavigating = false; // 标记是否由后退/前进按钮触发的历史状态恢复（主动点击链接导航绝不触发历史覆盖）
+let lastNewWindowRedirectUrl = ''; // 新窗口重定向防重 URL 记录
+let lastNewWindowRedirectTime = 0; // 新窗口重定向防重时间戳
+const pageSessionMap = new Map(); // 内存级页面会话快照记忆表 (标准化 URL -> { url, requests, screenshot, sessionId, timestamp })
 
 // 从本地加载阻断规则
 try {
@@ -212,6 +220,8 @@ document.addEventListener('DOMContentLoaded', () => {
       try {
         const res = await window.electronAPI.clearAllHistory();
         if (res.success) {
+          pageSessionMap.clear();
+          activeNavigationEpoch = 0;
           showToast('历史记录已全部清空', 'success');
           loadHistoryList();
         } else {
@@ -228,25 +238,20 @@ document.addEventListener('DOMContentLoaded', () => {
   // 网页预览浏览器控制器
   btnWebviewBack.addEventListener('click', () => {
     if (previewWebview.canGoBack()) {
-      beginPreviewCapture();
+      saveCurrentPageSnapshot(); // 先将当前页面的全量网络数据记录入记忆档案
+      isHistoryNavigating = true; // 标记这是后退历史导航，允许还原快照
       previewWebview.goBack();
     }
   });
   btnWebviewForward.addEventListener('click', () => {
     if (previewWebview.canGoForward()) {
-      beginPreviewCapture();
+      saveCurrentPageSnapshot(); // 先将当前页面的全量网络数据记录入记忆档案
+      isHistoryNavigating = true; // 标记这是前进历史导航，允许还原快照
       previewWebview.goForward();
     }
   });
   btnWebviewReload.addEventListener('click', () => {
-    // 每次刷新都作为一轮新的页面分析，清除旧请求并立即开启捕获。
-    beginPreviewCapture();
-
-    // 开启拦截模式并刷新内嵌 webview。
-    window.electronAPI.updateBlockingState({ rules: blockRules, bypass: false });
-
     // 强力刷新：优先读取当前 URL 强行导航，若读取不到或无效，回退读取输入框最新 URL 并强制加载
-    // 彻底解决 webview.reload() 在卡在报错页时无效、或者相同 URL 赋值被 Chromium 忽略而不加载的问题
     let reloadUrl = '';
     try {
       reloadUrl = previewWebview.getURL();
@@ -255,6 +260,19 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!reloadUrl || reloadUrl === 'about:blank') {
       reloadUrl = autoCompleteUrl(urlInput.value.trim());
     }
+
+    // 用户主动点击刷新：清除该页面的历史记忆档案，确保无缓存全量重新抓取最新网络链路
+    isHistoryNavigating = false;
+    const norm = normalizePageUrl(reloadUrl);
+    if (norm) {
+      pageSessionMap.delete(norm);
+    }
+
+    clearListAndReset();
+    beginPreviewCapture(reloadUrl, true);
+
+    // 开启拦截模式并刷新内嵌 webview。
+    window.electronAPI.updateBlockingState({ rules: blockRules, bypass: false });
 
     try {
       // 1. 优先使用原生的 reloadIgnoringCache 刷新当前页面（避开缓存且强制重载相同 URL）
@@ -300,23 +318,125 @@ document.addEventListener('DOMContentLoaded', () => {
   window.electronAPI.onRequestCaptured((record) => {
     if (isHistoryMode) return; // 历史查看下不追加新网络包
 
+    // 解析当前网络包的代数（单调自增 Epoch）
+    const recordEpoch = typeof record.navigationEpoch === 'number'
+      ? record.navigationEpoch
+      : (typeof record.navigationSessionId === 'number' ? record.navigationSessionId : 0);
+
+    // 核心智能代数时序对齐：
+    // 1. 若请求代数小于当前活跃代数：说明确实是上一个页面的旧延迟包，果断丢弃（物理阻断防叠加）！
+    if (recordEpoch > 0 && activeNavigationEpoch > 0 && recordEpoch < activeNavigationEpoch) {
+      return;
+    }
+
+    // 2. 核心突破：若请求代数大于当前活跃代数！
+    // 说明新页面的网络包已经率先以极速到达（比 IPC 的 page-navigation-reset 还快！前几十个 CSS/JS 就在这里！）
+    // 绝不能丢弃！立即自动自适应对齐新代数，保存旧页面并切换开启新会话，100% 收录先行到达的新包！
+    if (recordEpoch > activeNavigationEpoch) {
+      activeNavigationEpoch = recordEpoch;
+      activeNavigationSessionId = recordEpoch;
+      saveCurrentPageSnapshot(); // 固化上一个页面数据
+      clearListAndReset();       // 清空列表，以率先到达的新页面为主体展示
+      isCapturing = true;
+      setAnalyzingUI(true);
+      updateStatusText();
+    } else if (recordEpoch > 0 && activeNavigationEpoch === 0) {
+      activeNavigationEpoch = recordEpoch;
+      activeNavigationSessionId = recordEpoch;
+    }
+
+    if (!isCapturing) return;  // 未开启会话分析时不捕获
+
     // 按 requestId 查重，更新或追加
     const existingIndex = allRequests.findIndex(r => r.requestId === record.requestId);
+    let isNewRecord = false;
+
     if (existingIndex !== -1) {
       // 避免 responseStarted 覆盖已阻断状态
       if (allRequests[existingIndex].isBlocked) {
         return;
       }
-      allRequests[existingIndex] = { ...allRequests[existingIndex], ...record };
+      // 保留原有序号
+      const existingId = allRequests[existingIndex].id;
+      allRequests[existingIndex] = { ...allRequests[existingIndex], ...record, id: existingId };
     } else {
-      if (!isCapturing) return; // 如果当前不处于分析捕获阶段，忽略额外的新请求（例如预览刷新、二次点击等）
+      isNewRecord = true;
+      // 分配清晰自增序号
+      record.id = allRequests.length + 1;
       allRequests.push(record);
     }
 
     updateStats();
-    renderList();
     updateStatusText();
+
+    // 智能增量渲染与高亮联动：
+    // 若为新记录，直接进行增量渲染并触发高亮微动效与平滑滚动；已有记录则就地更新状态
+    if (isNewRecord) {
+      handleNewRequestAppended(record);
+      scheduleSnapshotUpdate();
+    } else {
+      updateExistingRow(record);
+    }
   });
+
+  // ── 集中单次注册全局 IPC 监听器（杜绝重建 Webview 时重复叠加挂载） ──────────────────
+  // 1. 监听独立大预览窗口发起的跨页导航，同步切换为主界面显示新窗口的数据
+  if (window.electronAPI && typeof window.electronAPI.onPreviewWindowNavigated === 'function') {
+    window.electronAPI.onPreviewWindowNavigated(({ url: navUrl }) => {
+      if (isHistoryMode || !navUrl || navUrl === 'about:blank') return;
+      urlInput.value = navUrl;
+      beginPreviewCapture(navUrl);
+    });
+  }
+
+  // 2. 监听来自主进程网络底层的 mainFrame 导航重置（物理级开启新页面会话，彻底防跨页数据叠加）
+  if (window.electronAPI && typeof window.electronAPI.onPageNavigationReset === 'function') {
+    window.electronAPI.onPageNavigationReset(({ epoch, sessionId, url: navUrl }) => {
+      if (isHistoryMode) return;
+      const targetEpoch = typeof epoch === 'number'
+        ? epoch
+        : (typeof sessionId === 'number' ? sessionId : activeNavigationEpoch + 1);
+
+      if (navUrl && navUrl !== 'about:blank') {
+        urlInput.value = navUrl;
+      }
+
+      // 若先行网络包已经完成了代数自适应升级，则只需同步 URL，不再重复清空已收录的先行网络包！
+      if (targetEpoch > activeNavigationEpoch) {
+        activeNavigationEpoch = targetEpoch;
+        activeNavigationSessionId = targetEpoch;
+        beginPreviewCapture(navUrl);
+      } else {
+        // 先行包已成功对齐并收录首批请求，同步原始分析 URL 确保快照与历史归档一致
+        if (navUrl && navUrl !== 'about:blank') {
+          originalAnalysisUrl = navUrl;
+        }
+      }
+    });
+  }
+
+  // 3. 监听来自主进程底层接管的网页弹出新窗口事件（target="_blank" 或 window.open）
+  if (window.electronAPI && typeof window.electronAPI.onOpenUrlInPreview === 'function') {
+    window.electronAPI.onOpenUrlInPreview(({ url: targetUrl }) => {
+      if (isHistoryMode || !targetUrl || targetUrl === 'about:blank') return;
+      if (lastNewWindowRedirectUrl === targetUrl && Date.now() - lastNewWindowRedirectTime < 350) return;
+      lastNewWindowRedirectUrl = targetUrl;
+      lastNewWindowRedirectTime = Date.now();
+      isHistoryNavigating = false;
+
+      urlInput.value = targetUrl;
+      beginPreviewCapture(targetUrl);
+      try {
+        if (typeof previewWebview.loadURL === 'function') {
+          previewWebview.loadURL(targetUrl);
+        } else {
+          previewWebview.src = targetUrl;
+        }
+      } catch (_) {
+        try { previewWebview.src = targetUrl; } catch (_) {}
+      }
+    });
+  }
 
   // ── 左右拖拽面板 resizer 逻辑 ──────────────────────────────────────────────
   let isResizing = false;
@@ -372,6 +492,16 @@ async function startAnalysis() {
   // 确保退出历史状态
   exitHistoryMode();
 
+  // 核心前置无条件强制重置：彻底消除连续点击分析按钮导致的并发锁拦截与数据叠加
+  isAnalyzing = false;
+  isHistoryNavigating = false;
+  activeCaptureNavigationUrl = '';
+  activeNavigationEpoch = 0;
+  activeNavigationSessionId = null;
+  const norm = normalizePageUrl(url);
+  if (norm) pageSessionMap.delete(norm);
+  clearListAndReset(); // 无条件强制清空列表与统计指标，绝不受任何防并发锁拦截！
+
   // 全新网页分析：绕过所有阻断规则，按实际原样内容显示
   window.electronAPI.updateBlockingState({ rules: blockRules, bypass: true });
 
@@ -398,8 +528,10 @@ async function startAnalysis() {
     await window.electronAPI.clearCache();
   } catch (_) {}
 
-  // 3. 缓存清理完毕，重置列表、开启捕获
-  beginPreviewCapture(url);
+  // 3. 缓存清理完毕，重置列表、开启全新捕获
+  activeNavigationEpoch = 0;
+  if (norm) pageSessionMap.delete(norm);
+  beginPreviewCapture(url, true);
 
   // 4. 轮询等待 Webview Custom Element 升级就绪并安全调用 loadURL
   const startWaitTime = Date.now();
@@ -429,9 +561,78 @@ async function startAnalysis() {
   checkAndLoad();
 }
 
+// ─── 页面会话记忆与智能状态恢复 ─────────────────────────────────────────────────
+function normalizePageUrl(urlStr) {
+  if (!urlStr || urlStr === 'about:blank') return '';
+  try {
+    const u = new URL(urlStr);
+    let pathname = u.pathname;
+    if (pathname.endsWith('/') && pathname.length > 1) {
+      pathname = pathname.slice(0, -1);
+    }
+    // 常见默认首页归一化 (如 /index.html, /index.htm, /index.php 归一到根路径)
+    if (/^\/index\.(?:html?|php|jsp|asp|aspx)$/i.test(pathname)) {
+      pathname = '';
+    }
+    return `${u.protocol}//${u.host}${pathname}${u.search}`;
+  } catch (_) {
+    return urlStr.trim().replace(/\/+$/, '');
+  }
+}
+
+// 保存当前页面的全量网络数据和快照至记忆档案表
+function saveCurrentPageSnapshot() {
+  if (isHistoryMode || allRequests.length === 0) return;
+  const url = originalAnalysisUrl || (previewWebview && typeof previewWebview.getURL === 'function' ? previewWebview.getURL() : '') || urlInput.value.trim();
+  const normUrl = normalizePageUrl(url);
+  if (!normUrl) return;
+
+  pageSessionMap.set(normUrl, {
+    url: url,
+    requests: allRequests.map(r => ({ ...r })), // 深克隆数组保证快照独立
+    screenshot: currentScreenshot,
+    sessionId: activeNavigationSessionId,
+    timestamp: Date.now()
+  });
+}
+
+// 尝试从记忆档案表中恢复目标页面的全量网络数据与看板状态
+function tryRestorePageSession(targetUrl) {
+  if (isHistoryMode) return false;
+  const normUrl = normalizePageUrl(targetUrl);
+  if (!normUrl || !pageSessionMap.has(normUrl)) {
+    return false;
+  }
+
+  const sessionData = pageSessionMap.get(normUrl);
+  if (!sessionData || !Array.isArray(sessionData.requests) || sessionData.requests.length === 0) {
+    return false;
+  }
+
+  // 成功命中已访问页面的历史记忆档案！
+  allRequests = sessionData.requests.map(r => ({ ...r }));
+  currentScreenshot = sessionData.screenshot || '';
+  activeNavigationSessionId = sessionData.sessionId || null;
+  originalAnalysisUrl = sessionData.url || targetUrl;
+  urlInput.value = sessionData.url || targetUrl;
+
+  // 完整还原左侧分析看板！
+  updateStats();
+  renderList();
+  setAnalyzingUI(false);
+  updateStatusText();
+
+  showToast(`已为您智能还原该页面的全量网络数据 (${allRequests.length} 条)`, 'info');
+  return true;
+}
+
 function clearListAndReset() {
   allRequests = [];
   currentScreenshot = '';
+  if (saveSnapshotDebounceTimer) {
+    clearTimeout(saveSnapshotDebounceTimer);
+    saveSnapshotDebounceTimer = null;
+  }
   updateStats();
   
   requestList.innerHTML = '';
@@ -439,39 +640,63 @@ function clearListAndReset() {
   emptyState.classList.remove('hidden');
 }
 
-// 开始捕获预览区当前页面的一轮新请求。用于手动刷新、前进/后退以及网页内部跳转。
-function beginPreviewCapture(navigationUrl = '') {
+// 开始捕获预览区当前页面的一轮新请求。用于手动刷新、前进/后退、新窗口弹出以及网页内部跳转。
+function beginPreviewCapture(navigationUrl = '', forceReset = false) {
   if (isHistoryMode) return;
 
   const captureUrl = navigationUrl && navigationUrl !== 'about:blank' ? navigationUrl : '';
-  // will-navigate 与 did-start-navigation 会为同一次跳转连续触发；只初始化一次，
-  // 避免在首批网络请求已经进入时再次清空列表。
-  if (isCapturing && captureUrl && activeCaptureNavigationUrl === captureUrl) {
+  // 在同一次正在加载的主框架跳转中（isAnalyzing === true 时），will-navigate 与 did-start-navigation
+  // 会为同一次跳转连续触发；此时只初始化一次，避免在首批网络请求已经进入时再次清空列表。
+  if (isAnalyzing && captureUrl && activeCaptureNavigationUrl === captureUrl) {
     return;
   }
+
+  // 1. 在离开当前页面前，先保存当前页面的全量网络快照入记忆表
+  saveCurrentPageSnapshot();
 
   if (captureUrl) {
     originalAnalysisUrl = captureUrl;
   }
   activeCaptureNavigationUrl = captureUrl;
+
+  // 2. 只有在明确的前进/后退历史导航下且非强制重置时，才从记忆表中还原快照；主动点击链接导航一律彻底清空开启全新捕获！
+  if (!forceReset && isHistoryNavigating && captureUrl && tryRestorePageSession(captureUrl)) {
+    isHistoryNavigating = false;
+    isCapturing = true;
+    return;
+  }
+
+  // 3. 主动导航（包含点击 Logo、同页重载、内页跳转等）：无条件清空列表，序号从 1 重新开始，绝不翻倍叠加
   clearListAndReset();
-  isCapturing = true;
+  isCapturing = true; // 开启持续捕获大网，支持新窗口及右侧操作实时联动
   setAnalyzingUI(true);
   updateStatusText();
 }
 
 // ─── UI 交互切换 ───────────────────────────────────────────────────────────────
 function setAnalyzingUI(loading) {
+  isAnalyzing = loading;
   analyzeBtn.disabled = loading;
+  const statusDot = analysisStatus ? analysisStatus.querySelector('.status-dot') : null;
+
   if (loading) {
     analyzeBtn.classList.add('loading');
     btnText.textContent = '载入中...';
     analysisStatus.classList.remove('hidden');
+    if (statusDot) statusDot.classList.remove('live');
     statusText.textContent = '正在实时加载网页，捕获数据链路...';
   } else {
     analyzeBtn.classList.remove('loading');
     btnText.textContent = '分析网页';
-    analysisStatus.classList.add('hidden');
+    // 网页加载完成后，只要处于捕获状态且不是历史模式，保持状态栏并激活绿色实时联动呼吸灯
+    if (isCapturing && !isHistoryMode) {
+      analysisStatus.classList.remove('hidden');
+      if (statusDot) statusDot.classList.add('live');
+      updateStatusText();
+    } else {
+      analysisStatus.classList.add('hidden');
+      if (statusDot) statusDot.classList.remove('live');
+    }
   }
 }
 
@@ -479,8 +704,17 @@ function updateStatusText() {
   const s = allRequests.filter((r) => r.success && !r.isBlocked).length;
   const b = allRequests.filter((r) => r.isBlocked).length;
   const f = allRequests.length - s - b;
-  statusText.textContent =
-    `捕获 ${allRequests.length} 请求 · 成功 ${s} · 阻断 ${b} · 失败 ${f}`;
+
+  if (isAnalyzing) {
+    statusText.textContent =
+      `正在实时加载网页... 捕获 ${allRequests.length} 请求 · 成功 ${s} · 阻断 ${b} · 失败 ${f}`;
+  } else if (isCapturing && !isHistoryMode) {
+    statusText.textContent =
+      `实时联动中 · 捕获 ${allRequests.length} 请求 · 成功 ${s} · 阻断 ${b} · 失败 ${f}`;
+  } else {
+    statusText.textContent =
+      `捕获 ${allRequests.length} 请求 · 成功 ${s} · 阻断 ${b} · 失败 ${f}`;
+  }
 }
 
 function updateStats() {
@@ -511,8 +745,73 @@ function renderList() {
 
   emptyState.classList.add('hidden');
   const frag = document.createDocumentFragment();
-  filtered.forEach((r) => frag.appendChild(buildRow(r)));
+  filtered.forEach((r) => {
+    const row = buildRow(r);
+    row.dataset.requestId = String(r.requestId);
+    frag.appendChild(row);
+  });
   requestList.appendChild(frag);
+}
+
+// 增量追加新捕获请求行并应用微动效与智能平滑滚动
+function handleNewRequestAppended(record) {
+  if (!matchFilter(record) || !matchSearch(record)) {
+    return;
+  }
+
+  emptyState.classList.add('hidden');
+
+  // 判断是否处于列表底部附近（距离底部小于 150px 则自动平滑跟随最新操作）
+  const isNearBottom = requestList.scrollHeight - requestList.scrollTop - requestList.clientHeight < 150;
+
+  const row = buildRow(record);
+  row.dataset.requestId = String(record.requestId);
+  row.classList.add('new-captured-highlight');
+
+  requestList.appendChild(row);
+
+  if (isNearBottom && typeof row.scrollIntoView === 'function') {
+    row.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+}
+
+// 增量更新已存在的请求行状态（如响应状态码或最终 IP 解析就绪）
+function updateExistingRow(record) {
+  const row = requestList.querySelector(`[data-request-id="${record.requestId}"]`);
+  if (row) {
+    const newRow = buildRow(record);
+    newRow.dataset.requestId = String(record.requestId);
+    if (row.classList.contains('new-captured-highlight')) {
+      newRow.classList.add('new-captured-highlight');
+    }
+    requestList.replaceChild(newRow, row);
+  }
+}
+
+// 当用户在右侧预览区进行交互产生新网络请求后，防抖更新快照与历史归档
+function scheduleSnapshotUpdate() {
+  if (isHistoryMode || isAnalyzing) return;
+  if (saveSnapshotDebounceTimer) {
+    clearTimeout(saveSnapshotDebounceTimer);
+  }
+  saveSnapshotDebounceTimer = setTimeout(async () => {
+    try {
+      if (previewWebview && typeof previewWebview.capturePage === 'function') {
+        const image = await previewWebview.capturePage();
+        currentScreenshot = image.toDataURL('image/jpeg', 0.7);
+
+        let url = originalAnalysisUrl || urlInput.value.trim() || previewWebview.getURL();
+        if (url && url !== 'about:blank') {
+          saveCurrentPageSnapshot(); // 同步更新内存记忆档案
+          window.electronAPI.saveHistory({
+            url: url,
+            requests: allRequests,
+            screenshot: currentScreenshot
+          });
+        }
+      }
+    } catch (_) {}
+  }, 1500);
 }
 
 function buildRow(record) {
@@ -677,6 +976,14 @@ function exitHistoryMode() {
   // 恢复 Webview 显示，隐藏历史图片层
   previewWebview.style.display = 'block';
   screenshotOverlay.classList.add('hidden');
+
+  // 恢复实时会话的统计与状态栏指示
+  updateStats();
+  if (isCapturing) {
+    setAnalyzingUI(false);
+  } else {
+    analysisStatus.classList.add('hidden');
+  }
 }
 
 // ─── 详情与大图弹窗 ───────────────────────────────────────────────────────────
@@ -871,6 +1178,13 @@ async function loadHistoryItem(id) {
 
       urlInput.value = detail.url;
 
+      // 载入历史记录时，状态栏同步更新为历史只读归档提示
+      const statusDot = analysisStatus ? analysisStatus.querySelector('.status-dot') : null;
+      if (statusDot) statusDot.classList.remove('live');
+      analysisStatus.classList.remove('hidden');
+      const timeStr = detail.timestamp ? new Date(detail.timestamp).toLocaleString() : '';
+      statusText.textContent = `历史分析快照 · 归档 ${allRequests.length} 请求 · 记录时间 ${timeStr}`;
+
       showToast(`已成功载入历史快照记录 (${allRequests.length} 项)`, 'success');
       hideHistoryDrawer();
     } else {
@@ -1025,18 +1339,38 @@ function bindWebviewEvents() {
   previewWebview.addEventListener('did-navigate', (e) => {
     if (e.url && e.url !== 'about:blank') {
       urlInput.value = e.url;
+      // 智能检测：仅在用户点击后退、前进触发的历史导航中，才优先从记忆档案中还原数据；普通链接导航绝不覆盖
+      if (isHistoryNavigating) {
+        const restored = tryRestorePageSession(e.url);
+        isHistoryNavigating = false;
+        if (!restored) {
+          originalAnalysisUrl = e.url;
+        }
+      } else {
+        originalAnalysisUrl = e.url;
+      }
     }
   });
   previewWebview.addEventListener('did-navigate-in-page', (e) => {
     if (e.url && e.url !== 'about:blank') {
       urlInput.value = e.url;
+      if (isHistoryNavigating) {
+        tryRestorePageSession(e.url);
+        isHistoryNavigating = false;
+      }
     }
   });
 
   // 对用户点击链接和页面脚本跳转，will-navigate 在网络请求前触发。
   // 这是重新开始捕获的主入口，避免错过目标页的首批请求。
   previewWebview.addEventListener('will-navigate', (e) => {
-    if (!isHistoryMode) beginPreviewCapture(e.url);
+    if (!isHistoryMode) {
+      const targetUrl = e.url;
+      if (targetUrl && targetUrl !== 'about:blank') {
+        urlInput.value = targetUrl;
+      }
+      beginPreviewCapture(targetUrl);
+    }
   });
 
   // 用户在预览页点击链接、脚本跳转或浏览器自身发生页面导航时，
@@ -1069,6 +1403,9 @@ function bindWebviewEvents() {
       return;
     }
 
+    activeCaptureNavigationUrl = '';
+    isHistoryNavigating = false;
+
     if (isCapturing) {
       setAnalyzingUI(false);
       isCapturing = false;
@@ -1078,15 +1415,18 @@ function bindWebviewEvents() {
   });
 
   previewWebview.addEventListener('did-stop-loading', async () => {
+    activeCaptureNavigationUrl = ''; // 网页加载完毕，重置当前导航锁，允许下一次跳转/弹出新窗口无障碍清空开启新轮次
     if (isCapturing) {
       setAnalyzingUI(false);
       updateStatusText();
+      saveCurrentPageSnapshot(); // 核心同步记录：页面加载完毕立即固化当前页面至记忆档案表
       
       // 如果不是历史查看模式，实时对预览区截图，作为快照保存
       if (!isHistoryMode) {
         try {
           const image = await previewWebview.capturePage();
           currentScreenshot = image.toDataURL('image/jpeg', 0.7);
+          saveCurrentPageSnapshot(); // 截图就绪后补全截图快照
           
           // 自动调用 IPC 写入历史记录归档
           let url = originalAnalysisUrl || urlInput.value.trim() || previewWebview.getURL();
@@ -1099,7 +1439,7 @@ function bindWebviewEvents() {
           }
         } catch (_) {}
       }
-      isCapturing = false; // 分析完成，关闭捕获
+      // 保持 isCapturing = true 持续捕获，用户在右侧预览中进行操作时，左侧分析看板实时联动
     }
     
     // 页面完全载入后恢复阻断状态，确保用户在网页上进行点击等操作时，拦截依然有效
@@ -1107,16 +1447,32 @@ function bindWebviewEvents() {
   });
 
   // 拦截并接管 webview 中由于 target="_blank" 或 window.open 发起的新窗口打开事件
-  // 将其强制在当前预览 webview 中直接导航，解决跳转无反应的问题
+  // 将其在当前视口直接导航，并立即清空旧数据、100% 以新窗口的数据显示
   const handleNewWindowRedirect = (e) => {
     e.preventDefault();
     const targetUrl = e.url || (e.detail && e.detail.url);
     if (targetUrl && targetUrl !== 'about:blank') {
+      if (lastNewWindowRedirectUrl === targetUrl && Date.now() - lastNewWindowRedirectTime < 350) return;
+      lastNewWindowRedirectUrl = targetUrl;
+      lastNewWindowRedirectTime = Date.now();
+      isHistoryNavigating = false;
+
+      urlInput.value = targetUrl;
+      // 关键核心：由 beginPreviewCapture 先将当前页保存入记忆档案，再切换为新页面并清空/还原展示！
+      beginPreviewCapture(targetUrl);
+
+      // 在预览视口中导航到新窗口目标地址
       try {
-        previewWebview.loadURL(targetUrl);
+        if (typeof previewWebview.loadURL === 'function') {
+          previewWebview.loadURL(targetUrl);
+        } else {
+          previewWebview.src = targetUrl;
+        }
       } catch (err) {
         console.error('Failed to load redirect URL from new-window:', err);
-        previewWebview.src = targetUrl;
+        try {
+          previewWebview.src = targetUrl;
+        } catch (_) {}
       }
     }
   };

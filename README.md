@@ -1,12 +1,12 @@
-# Web Request Analysis Tool — 网页请求分析工具 (V1.1.0)
+# Web Request Analysis Tool — 网页请求分析工具 (V1.2.6)
 
 [![GitHub](https://img.shields.io/badge/github-thousy/Web--Request--Analysis--Tool-6366f1?style=flat-flat&logo=github)](https://github.com/thousy/Web-Request-Analysis-Tool)
 [![Electron](https://img.shields.io/badge/electron-31.7.7-blue.svg?style=flat-flat&logo=electron)](https://www.electronjs.org/)
 [![License](https://img.shields.io/badge/license-MIT-success.svg?style=flat-flat)](LICENSE)
 
-**Web Request Analysis Tool (网页请求分析工具)** 是一款基于 **Electron** + **Chrome Native WebRequest 嗅探架构** 开发的高颜值、高性能网页网络请求捕获、拦截与分析工具。
+**Web Request Analysis Tool (网页请求分析工具)** 是一款基于 **Electron** + **Chrome Native WebRequest 嗅探架构** + **Chrome DevTools Protocol (CDP)** 开发的高颜值、高性能网页网络请求实时捕获、拦截、分析与可视化诊断工具。
 
-本工具不仅支持高精度的网络请求实时监控，还融入了专属雷达图标自举转换生成、共享 Session 放大子窗口同步无缓存重载、CSV 导出防乱码 UTF-8 BOM 编码、交互式网络请求阻断过滤以及静态网页快照切换等一整套专业级的网络请求调试与分析解决方案。
+本工具不仅支持物理级网络请求全量穿透监控，还集成了底层会话代数隔离（彻底杜绝数据混杂与翻倍叠加）、前进/后退历史记忆瞬间还原、专属雷达图标自举生成、多格式绿色免安装打包、以及 CSV 导出防乱码等专业级网络请求分析解决方案。
 
 ---
 
@@ -42,6 +42,18 @@
 ### 7. 专属雷达图标自举渲染
 *   **自举生成算法**：无需引入任何第三方的 Node.js 二进制图标依赖，本工具内置了 Chromium 绘图自举算法。每次应用在任意平台启动时，主进程会自动在后台无头将精美的雷达 SVG 图形通过 Canvas 导出为 `icon.png`，并合并 22 字节标准 ICO 二进制头部生成 `icon.ico`。
 *   **全局视觉绑定**：生成的图标会自动应用于主窗口、放大预览子窗口的标题栏与任务栏底标中，同时在 `package.json` 的 `build.win` 配置中进行了绑定，支持打包生成统一带雷达图标的发布程序。
+
+### 8. 实时联动与操作捕获 (Interactive Live Linkage)
+*   **交互包全量捕获**：首屏加载结束后捕获大网持续敞开，状态栏实时常态亮起翠绿色呼吸灯（`● 实时联动中`）；用户在右侧预览中的任何点击、表单提交、翻页或 AJAX 操作产生的网络包 100% 毫秒级被捕获入列表。
+*   **增量高亮与智能跟焦**：为每项网络包分配全局自增序号，新捕获的请求项自动附带强调色微动效发光，若滚动条处于底部附近则自动平滑跟焦对齐。
+
+### 9. CDP 穿透缓存与全量真实通信 (Cache Penetration)
+*   **停用 Blink 内存缓存**：主进程底层挂载 Chrome DevTools Protocol (CDP)，执行 `Network.setCacheDisabled({ cacheDisabled: true })` 与无缓存控制头注入，彻底打破渲染引擎内存强缓存私吞资源的限制，普通跳转也能抓取与刷新 100% 一致的全量请求。
+
+### 10. 会话隔离与主动导航防翻倍叠加 (Navigation Session Isolation)
+*   **底层代数会话隔离**：主进程网络底层侦测 `mainFrame` 主文档加载并递增 Epoch 代数，渲染层收到非活跃会话的网络包瞬间丢弃，彻底杜绝跨页延迟包污染。
+*   **主动超链接点击彻底清空**：用户在实时预览中点击任何超链接（包含点击 Logo 重载当前页、内页跳转等）时，必定 100% 彻底清空列表开启全新捕获轮次，序号严格从 1 重新开始，彻底根除翻倍叠加顽疾。
+*   **前进/后退历史快照还原**：用户点击窗口顶部【后退】与【前进】按钮时，智能从内存快照表中瞬间还原历史全量请求与看板数据，完美免疫 Chromium 往返缓存（BFCache）。
 
 ---
 
@@ -101,11 +113,14 @@ npm run dev
 ```
 *(注意：首次启动时，项目根目录下会自动生成专属的雷达图标 `icon.ico` 与 `icon.png`)*
 
-### 4. 编译打包生成 Windows 可执行 EXE
+### 4. 编译打包生成 Windows 专属程序
 ```bash
 npm run dist
 ```
-打包成功后，Windows 免安装绿色 ZIP 发布包与 `win-unpacked` 绿色安装目录将输出在 `dist/` 文件夹中。直接运行 `WebRequestAnalysisTool.exe` 即可！
+构建成功后，`dist/` 目录下将同时输出以下三种格式的 Windows 发布产物：
+1. **安装程序包 (NSIS)**：`WebRequestAnalysisTool Setup 1.2.6.exe`（支持自定义安装路径、创建桌面快捷方式与自动卸载）。
+2. **单文件绿色免安装版 (Portable)**：`WebRequestAnalysisTool 1.2.6.exe`（双击即用，零系统残留）。
+3. **免安装压缩包版 (ZIP)**：`WebRequestAnalysisTool-1.2.6-win.zip`（解压即用，内置免安装运行目录）。
 
 ---
 
