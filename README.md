@@ -1,4 +1,4 @@
-# Web Request Analysis Tool — 网页请求分析工具 (V1.2.6)
+# Web Request Analysis Tool — 网页请求分析工具 (V1.2.7)
 
 [![GitHub](https://img.shields.io/badge/github-thousy/Web--Request--Analysis--Tool-6366f1?style=flat-flat&logo=github)](https://github.com/thousy/Web-Request-Analysis-Tool)
 [![Electron](https://img.shields.io/badge/electron-31.7.7-blue.svg?style=flat-flat&logo=electron)](https://www.electronjs.org/)
@@ -6,7 +6,7 @@
 
 **Web Request Analysis Tool (网页请求分析工具)** 是一款基于 **Electron** + **Chrome Native WebRequest 嗅探架构** + **Chrome DevTools Protocol (CDP)** 开发的高颜值、高性能网页网络请求实时捕获、拦截、分析与可视化诊断工具。
 
-本工具不仅支持物理级网络请求全量穿透监控，还集成了底层会话代数隔离（彻底杜绝数据混杂与翻倍叠加）、前进/后退历史记忆瞬间还原、专属雷达图标自举生成、多格式绿色免安装打包、以及 CSV 导出防乱码等专业级网络请求分析解决方案。
+本工具不仅支持物理级网络请求全量穿透监控，还集成了底层会话代数隔离（彻底杜绝数据混杂与翻倍叠加）、前进/后退历史记忆瞬间还原、域名与 IP 清单结构化导出、专属雷达图标自举生成、多格式绿色免安装打包、以及 CSV 导出防乱码等专业级网络请求分析解决方案。
 
 ---
 
@@ -54,6 +54,11 @@
 *   **底层代数会话隔离**：主进程网络底层侦测 `mainFrame` 主文档加载并递增 Epoch 代数，渲染层收到非活跃会话的网络包瞬间丢弃，彻底杜绝跨页延迟包污染。
 *   **主动超链接点击彻底清空**：用户在实时预览中点击任何超链接（包含点击 Logo 重载当前页、内页跳转等）时，必定 100% 彻底清空列表开启全新捕获轮次，序号严格从 1 重新开始，彻底根除翻倍叠加顽疾。
 *   **前进/后退历史快照还原**：用户点击窗口顶部【后退】与【前进】按钮时，智能从内存快照表中瞬间还原历史全量请求与看板数据，完美免疫 Chromium 往返缓存（BFCache）。
+
+### 11. 成功域名/IP 与失败链接结构化导出 (Domain & IP Analysis Export)
+*   **成功域名与 IP 精准绑定**：自动按域名维度聚合分析，提取每个成功域名的物理连接 IP 地址（支持多 IP 汇总去重）、通信端口与请求成功次数，并归档该域名下所有请求成功的完整 URL 链接清单。
+*   **失败与阻断链接全记录**：将所有请求失败（网络超时、拒绝、报错）或被规则阻断的完整 URL、所属域名及错误原因/状态码精准记录。
+*   **双格式导出支持**：支持导出为排版优美的结构化文本清单报告（`.txt`）或包含 UTF-8 BOM 编码的 Excel 兼容数据表格（`.csv`）。
 
 ---
 
@@ -118,9 +123,9 @@ npm run dev
 npm run dist
 ```
 构建成功后，`dist/` 目录下将同时输出以下三种格式的 Windows 发布产物：
-1. **安装程序包 (NSIS)**：`WebRequestAnalysisTool Setup 1.2.6.exe`（支持自定义安装路径、创建桌面快捷方式与自动卸载）。
-2. **单文件绿色免安装版 (Portable)**：`WebRequestAnalysisTool 1.2.6.exe`（双击即用，零系统残留）。
-3. **免安装压缩包版 (ZIP)**：`WebRequestAnalysisTool-1.2.6-win.zip`（解压即用，内置免安装运行目录）。
+1. **安装程序包 (NSIS)**：`WebRequestAnalysisTool Setup 1.2.7.exe`（支持自定义安装路径、创建桌面快捷方式与自动卸载）。
+2. **单文件绿色免安装版 (Portable)**：`WebRequestAnalysisTool 1.2.7.exe`（双击即用，零系统残留）。
+3. **免安装压缩包版 (ZIP)**：`WebRequestAnalysisTool-1.2.7-win.zip`（解压即用，内置免安装运行目录）。
 
 ---
 

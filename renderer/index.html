@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:">
-  <title>WebRequestAnalysisTool V1.2.6 — 网页请求分析工具</title>
+  <title>WebRequestAnalysisTool V1.2.7 — 网页请求分析工具</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -29,7 +29,7 @@
           </defs>
         </svg>
       </div>
-      <span class="logo-text">WebRequestAnalysisTool V1.2.6</span>
+      <span class="logo-text">WebRequestAnalysisTool V1.2.7</span>
       <span class="header-badge">网页请求分析工具</span>
     </div>
     <div class="header-right">
@@ -136,6 +136,10 @@
         <button id="btnHistory" class="btn-export" title="查看历史分析记录">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
           历史
+        </button>
+        <button id="exportDomain" class="btn-export" title="导出域名与IP分析清单 (包含成功域名IP与失败链接)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+          域名/IP清单
         </button>
         <button id="exportJson" class="btn-export">
           <svg viewBox="0 0 20 20" fill="none"><path d="M4 16H16M10 4V12M10 12L7 9M10 12L13 9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>

@@ -481,7 +481,7 @@ body[data-theme="light"] .stat-card:hover {
   display: flex;
   align-items: center;
   gap: 5px;
-  padding: 6px 14px;
+  padding: 6px 12px;
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -489,6 +489,7 @@ body[data-theme="light"] .stat-card:hover {
   font-size: 12px;
   font-family: var(--font-sans);
   cursor: pointer;
+  white-space: nowrap;
   transition: background var(--transition), border-color var(--transition), color var(--transition);
 }
 .btn-export svg { width: 14px; height: 14px; }

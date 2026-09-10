@@ -541,15 +541,35 @@ ipcMain.handle('save-history', async (event, { url, requests, screenshot }) => {
   }
 });
 
-// 渲染层要求导出 JSON / CSV 数据
+// 渲染层要求导出 JSON / CSV / 域名与IP清单 数据
 ipcMain.handle('export-data', async (event, { data, format }) => {
   try {
-    const ext = format === 'csv' ? 'csv' : 'json';
-    const filters = [{ name: format.toUpperCase() + ' Files', extensions: [ext] }];
-    
+    let ext = 'json';
+    let defaultFileName = `network_requests_${Date.now()}`;
+    let title = '导出网络请求数据';
+    let filters = [];
+
+    if (format === 'domain-report') {
+      ext = 'txt';
+      defaultFileName = `domain_ip_report_${Date.now()}`;
+      title = '导出域名与 IP 分析清单报告';
+      filters = [
+        { name: '域名与IP清单文本报告 (*.txt)', extensions: ['txt'] },
+        { name: '域名与IP清单表格 (*.csv)', extensions: ['csv'] }
+      ];
+    } else if (format === 'csv') {
+      ext = 'csv';
+      title = '导出网络请求数据 (CSV)';
+      filters = [{ name: 'CSV Files (*.csv)', extensions: ['csv'] }];
+    } else {
+      ext = 'json';
+      title = '导出网络请求数据 (JSON)';
+      filters = [{ name: 'JSON Files (*.json)', extensions: ['json'] }];
+    }
+
     const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
-      title: `导出网络请求数据 (${format.toUpperCase()})`,
-      defaultPath: path.join(app.getPath('downloads'), `network_requests_${Date.now()}.${ext}`),
+      title,
+      defaultPath: path.join(app.getPath('downloads'), `${defaultFileName}.${ext}`),
       filters
     });
 
@@ -557,8 +577,158 @@ ipcMain.handle('export-data', async (event, { data, format }) => {
       return { success: false, error: '用户取消了导出' };
     }
 
+    const chosenExt = path.extname(filePath).toLowerCase().replace('.', '') || ext;
     let content = '';
-    if (format === 'json') {
+
+    if (format === 'domain-report') {
+      // 聚合成功域名、IP以及失败链接数据
+      const successDomains = new Map();
+      const failedLinks = [];
+
+      (data || []).forEach((r) => {
+        let hostname = '';
+        try {
+          hostname = new URL(r.url).hostname;
+        } catch (_) {
+          hostname = r.url || '未知域名';
+        }
+
+        const isSuccess = r.success && !r.isBlocked;
+        if (isSuccess) {
+          if (!successDomains.has(hostname)) {
+            successDomains.set(hostname, {
+              domain: hostname,
+              ips: new Set(),
+              ports: new Set(),
+              links: [],
+              count: 0
+            });
+          }
+          const item = successDomains.get(hostname);
+          item.count++;
+          if (r.ipAddress && r.ipAddress !== '缓存' && r.ipAddress !== '—') {
+            item.ips.add(r.ipAddress);
+          }
+          if (r.port) {
+            item.ports.add(r.port);
+          }
+          if (r.url && !item.links.includes(r.url)) {
+            item.links.push(r.url);
+          }
+        } else {
+          failedLinks.push({
+            url: r.url || '',
+            domain: hostname,
+            error: r.isBlocked ? '🚫 已阻断 (规则拦截)' : (r.error || (r.status ? `HTTP ${r.status} ${r.statusText || ''}` : '连接失败')),
+            status: r.status,
+            isBlocked: r.isBlocked,
+            time: r.timestamp ? new Date(r.timestamp).toLocaleString() : new Date().toLocaleString()
+          });
+        }
+      });
+
+      if (chosenExt === 'csv') {
+        // CSV 格式导出
+        const headers = ['分类', '域名/主机', '关联 IP 地址', '端口', '请求状态', '完整请求 URL', '错误原因/状态码', '记录时间'];
+        const csvRows = [];
+
+        successDomains.forEach((info) => {
+          const ipStr = Array.from(info.ips).join('; ') || '缓存/未捕获';
+          const portStr = Array.from(info.ports).join('; ') || '—';
+          info.links.forEach((link) => {
+            csvRows.push([
+              '请求成功',
+              info.domain,
+              ipStr,
+              portStr,
+              '成功',
+              link,
+              '—',
+              new Date().toLocaleString()
+            ]);
+          });
+        });
+
+        failedLinks.forEach((item) => {
+          csvRows.push([
+            '请求失败/阻断',
+            item.domain,
+            '—',
+            '—',
+            item.isBlocked ? '已阻断' : '失败',
+            item.url,
+            item.error,
+            item.time
+          ]);
+        });
+
+        const formattedRows = csvRows.map(row =>
+          row.map(val => {
+            const str = String(val);
+            return /[",\r\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
+          }).join(',')
+        );
+
+        content = '\ufeff' + [headers.join(','), ...formattedRows].join('\r\n');
+      } else {
+        // 结构化 TXT 格式报告导出
+        const lines = [];
+        lines.push('================================================================================');
+        lines.push('  Web Request Analysis Tool — 域名与 IP 分析清单报告');
+        lines.push('================================================================================');
+        lines.push(`导出时间: ${new Date().toLocaleString()}`);
+        lines.push(`请求总数: ${(data || []).length} 项`);
+        const totalSuccessCount = Array.from(successDomains.values()).reduce((acc, cur) => acc + cur.count, 0);
+        lines.push(`  * 成功请求: ${totalSuccessCount} 次 (涉及 ${successDomains.size} 个独立域名)`);
+        lines.push(`  * 失败/阻断: ${failedLinks.length} 次 (涉及 ${new Set(failedLinks.map(f => f.domain)).size} 个独立域名)`);
+        lines.push('');
+
+        lines.push('================================================================================');
+        lines.push('【一、请求成功的域名与关联 IP 清单】');
+        lines.push('================================================================================');
+
+        if (successDomains.size === 0) {
+          lines.push('(暂无请求成功的域名记录)');
+        } else {
+          let idx = 1;
+          successDomains.forEach((info) => {
+            const ipStr = Array.from(info.ips).join(', ') || '缓存 / 未捕获物理IP';
+            const portStr = Array.from(info.ports).join(', ') || '—';
+            lines.push(`[${idx++}] 域名: ${info.domain}`);
+            lines.push(`    * 关联 IP 地址: ${ipStr}`);
+            lines.push(`    * 关联通信端口: ${portStr}`);
+            lines.push(`    * 请求成功次数: ${info.count} 次`);
+            lines.push(`    * 成功链接清单 (共 ${info.links.length} 条独立链接):`);
+            info.links.forEach((link, lIdx) => {
+              lines.push(`      ${lIdx + 1}. ${link}`);
+            });
+            lines.push('');
+          });
+        }
+
+        lines.push('================================================================================');
+        lines.push('【二、请求失败 / 被阻断的链接清单】');
+        lines.push('================================================================================');
+
+        if (failedLinks.length === 0) {
+          lines.push('(暂无请求失败或被阻断的链接，全量通信正常)');
+        } else {
+          failedLinks.forEach((item, fIdx) => {
+            lines.push(`[${fIdx + 1}] 链接: ${item.url}`);
+            lines.push(`    * 所属域名: ${item.domain}`);
+            lines.push(`    * 状态/原因: ${item.error}`);
+            lines.push(`    * 发生时间: ${item.time}`);
+            lines.push('');
+          });
+        }
+
+        lines.push('================================================================================');
+        lines.push('  报告结束 · Generated by Web Request Analysis Tool');
+        lines.push('================================================================================');
+
+        content = lines.join('\r\n');
+      }
+    } else if (format === 'json') {
       content = JSON.stringify(data, null, 2);
     } else {
       // CSV 格式化输出
@@ -592,7 +762,7 @@ ipcMain.handle('export-data', async (event, { data, format }) => {
     }
 
     fs.writeFileSync(filePath, content, 'utf8');
-    return { success: true };
+    return { success: true, filePath, format: chosenExt };
   } catch (err) {
     return { success: false, error: err.message };
   }

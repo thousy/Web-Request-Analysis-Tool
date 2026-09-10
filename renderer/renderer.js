@@ -51,6 +51,7 @@ const ipCount         = document.getElementById('ipCount');
 
 const filterBtns      = document.querySelectorAll('.filter-btn');
 const searchInput     = document.getElementById('searchInput');
+const exportDomain    = document.getElementById('exportDomain');
 const exportJson      = document.getElementById('exportJson');
 const exportCsv       = document.getElementById('exportCsv');
 const toggleScr       = document.getElementById('toggleScreenshot');
@@ -158,6 +159,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // 导出
+  if (exportDomain) exportDomain.addEventListener('click', () => doExport('domain-report'));
   exportJson.addEventListener('click', () => doExport('json'));
   exportCsv.addEventListener('click', () => doExport('csv'));
   toggleScr.addEventListener('click', () => {
@@ -1198,13 +1200,14 @@ async function loadHistoryItem(id) {
 // ─── 数据导出 ─────────────────────────────────────────────────────────────────
 async function doExport(format) {
   if (allRequests.length === 0) {
-    showToast('暂无数据可导出', 'warning');
+    showToast('暂无数据可导出，请先分析网页', 'warning');
     return;
   }
   const result = await window.electronAPI.exportData({ data: allRequests, format });
-  if (result.success) {
-    showToast(`已导出 ${format.toUpperCase()} 文件`, 'success');
-  } else if (result && !result.success && result.error) {
+  if (result && result.success) {
+    const label = format === 'domain-report' ? '域名与 IP 清单报告' : format.toUpperCase();
+    showToast(`已成功导出 ${label} 文件`, 'success');
+  } else if (result && !result.success && result.error && result.error !== '用户取消了导出') {
     showToast('导出失败：' + result.error, 'error');
   }
 }
