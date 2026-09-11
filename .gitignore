@@ -1,3 +1,5 @@
 node_modules/
 dist/
 history_records/
+history_records/*
+*.log

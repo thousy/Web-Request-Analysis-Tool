@@ -88,7 +88,7 @@ function checkBlocked(url) {
 
 // ─── 建立 Web 流量嗅探与拦截 ───────────────────────────────────────────────────
 function setupWebRequestSniffer() {
-  const filter = { urls: ['http://*/*', 'https://*/*'] };
+  const filter = { urls: ['http://*/*', 'https://*/*', 'ws://*/*', 'wss://*/*'] };
   const ses = session.fromPartition('persist:preview');
 
   // 清除旧的拦截器
@@ -159,7 +159,7 @@ function setupWebRequestSniffer() {
     let port = null;
     try {
       const parsed = new URL(urlStr);
-      port = parsed.port || (parsed.protocol === 'https:' ? '443' : '80');
+      port = parsed.port || (parsed.protocol === 'https:' || parsed.protocol === 'wss:' ? '443' : '80');
       const hostname = parsed.hostname;
       const ipRegex = /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$|^\[?[a-fA-F0-9:]+\]?$/;
       if (ipRegex.test(hostname)) {
@@ -169,12 +169,12 @@ function setupWebRequestSniffer() {
     return { ipAddress, port };
   };
 
-  // 2. 响应头开始接收：捕获成功响应、状态码及目标 IP
+  // 2. 响应头开始接收：捕获响应、状态码判定及目标 IP
   ses.webRequest.onResponseStarted(filter, (details) => {
     let port = null;
     try {
       const parsed = new URL(details.url);
-      port = parsed.port || (parsed.protocol === 'https:' ? '443' : '80');
+      port = parsed.port || (parsed.protocol === 'https:' || parsed.protocol === 'wss:' ? '443' : '80');
     } catch (_) {}
 
     let ipAddress = details.ip || '缓存';
@@ -185,18 +185,40 @@ function setupWebRequestSniffer() {
       }
     }
 
+    // 严密 HTTP 状态码成功/失败判定（>= 400 严密归类为连接失败）
+    const isHttpSuccess = typeof details.statusCode === 'number' && details.statusCode > 0 && details.statusCode < 400;
+    let statusText = '';
+    let errorMessage = null;
+
+    if (details.statusCode === 200) statusText = 'OK';
+    else if (details.statusCode === 301) statusText = 'Moved Permanently';
+    else if (details.statusCode === 302) statusText = 'Found';
+    else if (details.statusCode === 304) statusText = 'Not Modified';
+    else if (details.statusCode === 400) { statusText = 'Bad Request'; errorMessage = 'HTTP 400 错误请求 (Bad Request)'; }
+    else if (details.statusCode === 401) { statusText = 'Unauthorized'; errorMessage = 'HTTP 401 未经授权 (Unauthorized)'; }
+    else if (details.statusCode === 403) { statusText = 'Forbidden'; errorMessage = 'HTTP 403 禁止访问 (Forbidden)'; }
+    else if (details.statusCode === 404) { statusText = 'Not Found'; errorMessage = 'HTTP 404 资源不存在 (Not Found)'; }
+    else if (details.statusCode === 500) { statusText = 'Internal Server Error'; errorMessage = 'HTTP 500 服务器内部错误 (Internal Server Error)'; }
+    else if (details.statusCode === 502) { statusText = 'Bad Gateway'; errorMessage = 'HTTP 502 错误网关 (Bad Gateway)'; }
+    else if (details.statusCode === 503) { statusText = 'Service Unavailable'; errorMessage = 'HTTP 503 服务不可用 (Service Unavailable)'; }
+    else if (details.statusCode === 504) { statusText = 'Gateway Timeout'; errorMessage = 'HTTP 504 网关超时 (Gateway Time-out)'; }
+    else if (!isHttpSuccess) {
+      statusText = `HTTP ${details.statusCode}`;
+      errorMessage = `HTTP ${details.statusCode} 响应异常`;
+    }
+
     const sendRecord = (ip) => {
       sendToRenderer('request-captured', {
         requestId: details.id,
         url: details.url,
         method: details.method,
         status: details.statusCode,
-        statusText: details.statusCode === 200 ? 'OK' : '',
+        statusText: statusText,
         ipAddress: ip,
         port: port,
         resourceType: details.resourceType,
-        success: true,
-        error: null,
+        success: isHttpSuccess,
+        error: errorMessage,
         isBlocked: false,
         timestamp: Date.now(),
         navigationEpoch: currentNavigationEpoch,
@@ -417,14 +439,76 @@ app.whenReady().then(async () => {
   app.on('web-contents-created', (event, contents) => {
     if (mainWindow && contents === mainWindow.webContents) return;
 
+    // 为每个 WebContents 维护独立 CDP 请求映射
+    const cdpRequestMap = new Map();
+
     // 核心黄金标准：通过 Chrome DevTools Protocol 彻底禁用 Blink 渲染引擎内存缓存与网络缓存
-    // 使得每一次普通点击跳转均穿透内存缓存，发起全量真实网络请求（彻底解决跳转只有7条而刷新52条的巨大落差）
+    // 同时深度监听 Network.loadingFailed，100% 捕获被 CSP 策略或 CORS 拦截的前端外联组件请求
     const attachNetworkCacheDisabled = async () => {
       try {
         if (!contents.isDestroyed() && !contents.debugger.isAttached()) {
           contents.debugger.attach('1.3');
           await contents.debugger.sendCommand('Network.enable');
           await contents.debugger.sendCommand('Network.setCacheDisabled', { cacheDisabled: true });
+
+          contents.debugger.on('message', (event, method, params) => {
+            if (method === 'Network.requestWillBeSent') {
+              if (params && params.requestId && params.request) {
+                cdpRequestMap.set(params.requestId, {
+                  url: params.request.url,
+                  method: params.request.method,
+                  type: params.type || 'other',
+                  timestamp: Date.now()
+                });
+                if (cdpRequestMap.size > 2000) {
+                  const firstKey = cdpRequestMap.keys().next().value;
+                  cdpRequestMap.delete(firstKey);
+                }
+              }
+            } else if (method === 'Network.loadingFailed') {
+              if (!params || !params.requestId) return;
+              const reqInfo = cdpRequestMap.get(params.requestId);
+              const targetUrl = reqInfo ? reqInfo.url : null;
+              if (!targetUrl || targetUrl.startsWith('file://') || targetUrl === 'about:blank') return;
+
+              const blockedReason = (params.blockedReason || '').toLowerCase();
+              const errorText = (params.errorText || '').toLowerCase();
+              const isCsp = blockedReason.includes('csp') || errorText.includes('csp') || errorText.includes('blocked_by_csp');
+              const isCors = blockedReason.includes('cors') || errorText.includes('cors');
+
+              // 仅捕获明确策略拦截或非主动导航取消的失败请求
+              if (isCsp || isCors || blockedReason || (!params.canceled && params.errorText)) {
+                let errorDesc = params.errorText || '加载失败';
+                if (isCsp) {
+                  errorDesc = '🚫 [CSP策略拦截] 页面安全策略阻止外联';
+                } else if (isCors) {
+                  errorDesc = '🚫 [CORS跨域拦截] 跨域安全策略阻止请求';
+                } else if (blockedReason) {
+                  errorDesc = `🚫 [策略拦截] ${params.blockedReason}`;
+                }
+
+                const fallback = getFallbackIpAndPort(targetUrl);
+
+                sendToRenderer('request-captured', {
+                  requestId: `cdp_${params.requestId}`,
+                  url: targetUrl,
+                  method: reqInfo ? reqInfo.method : 'GET',
+                  status: null,
+                  statusText: null,
+                  ipAddress: fallback.ipAddress,
+                  port: fallback.port,
+                  resourceType: (reqInfo ? reqInfo.type : params.type) || 'other',
+                  success: false,
+                  error: errorDesc,
+                  isBlocked: false,
+                  isCspBlocked: isCsp,
+                  timestamp: Date.now(),
+                  navigationEpoch: currentNavigationEpoch,
+                  navigationSessionId: currentNavigationEpoch
+                });
+              }
+            }
+          });
         }
       } catch (_) {}
     };

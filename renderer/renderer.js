@@ -850,7 +850,7 @@ function buildRow(record) {
   let codeHtml;
   if (record.isBlocked) {
     codeHtml = `<span class="code-err">已阻断</span>`;
-  } else if (record.success && record.status) {
+  } else if (record.status) {
     const cls = record.status < 300 ? 'code-2xx'
               : record.status < 400 ? 'code-3xx'
               : record.status < 500 ? 'code-4xx'
@@ -858,7 +858,7 @@ function buildRow(record) {
     codeHtml = `<span class="${cls}">${record.status} ${record.statusText || ''}</span>`;
   } else {
     const errShort = (record.error || '失败').substring(0, 18);
-    codeHtml = `<span class="code-err" title="${record.error || ''}">${errShort}</span>`;
+    codeHtml = `<span class="code-err" title="${escHtml(record.error || '')}">${escHtml(errShort)}</span>`;
   }
 
   // 阻断与允许规则状态判断

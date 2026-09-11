@@ -1,4 +1,4 @@
-# Web Request Analysis Tool — 网页请求分析工具 (V1.2.7)
+# Web Request Analysis Tool — 网页请求分析工具 (V1.2.8)
 
 [![GitHub](https://img.shields.io/badge/github-thousy/Web--Request--Analysis--Tool-6366f1?style=flat-flat&logo=github)](https://github.com/thousy/Web-Request-Analysis-Tool)
 [![Electron](https://img.shields.io/badge/electron-31.7.7-blue.svg?style=flat-flat&logo=electron)](https://www.electronjs.org/)
@@ -6,7 +6,7 @@
 
 **Web Request Analysis Tool (网页请求分析工具)** 是一款基于 **Electron** + **Chrome Native WebRequest 嗅探架构** + **Chrome DevTools Protocol (CDP)** 开发的高颜值、高性能网页网络请求实时捕获、拦截、分析与可视化诊断工具。
 
-本工具不仅支持物理级网络请求全量穿透监控，还集成了底层会话代数隔离（彻底杜绝数据混杂与翻倍叠加）、前进/后退历史记忆瞬间还原、域名与 IP 清单结构化导出、专属雷达图标自举生成、多格式绿色免安装打包、以及 CSV 导出防乱码等专业级网络请求分析解决方案。
+本工具不仅支持物理级网络请求全量穿透监控，还集成了底层会话代数隔离（彻底杜绝数据混杂与翻倍叠加）、前进/后退历史记忆瞬间还原、CSP 策略拦截外联组件全量捕获、域名与 IP 清单结构化导出、专属雷达图标自举生成、多格式绿色免安装打包、以及 CSV 导出防乱码等专业级网络请求分析解决方案。
 
 ---
 
@@ -59,6 +59,10 @@
 *   **成功域名与 IP 精准绑定**：自动按域名维度聚合分析，提取每个成功域名的物理连接 IP 地址（支持多 IP 汇总去重）、通信端口与请求成功次数，并归档该域名下所有请求成功的完整 URL 链接清单。
 *   **失败与阻断链接全记录**：将所有请求失败（网络超时、拒绝、报错）或被规则阻断的完整 URL、所属域名及错误原因/状态码精准记录。
 *   **双格式导出支持**：支持导出为排版优美的结构化文本清单报告（`.txt`）或包含 UTF-8 BOM 编码的 Excel 兼容数据表格（`.csv`）。
+
+### 12. CSP 策略拦截外联组件捕获与 HTTP 状态码严密判定 (CSP & Error Status Sniffing)
+*   **CDP 深度监听前端拦截**：通过 Chrome DevTools Protocol 挂载 `Network.loadingFailed`，彻底捕获被网页自身 CSP 安全策略（如高德地图 `webapi.amap.com`、`zzsin.com` 等）或 CORS 跨域在前端阻断的外联组件请求，标明 `🚫 [CSP策略拦截]` 并归入失败。
+*   **严密 HTTP 错误状态码判定**：HTTP 状态码 `>= 400`（如 504 Gateway Time-out、404 Not Found、500 Server Error）严格判定为 `success: false`，杜绝误判为连接成功，并在看板与列表中准确对齐。
 
 ---
 
@@ -123,9 +127,9 @@ npm run dev
 npm run dist
 ```
 构建成功后，`dist/` 目录下将同时输出以下三种格式的 Windows 发布产物：
-1. **安装程序包 (NSIS)**：`WebRequestAnalysisTool Setup 1.2.7.exe`（支持自定义安装路径、创建桌面快捷方式与自动卸载）。
-2. **单文件绿色免安装版 (Portable)**：`WebRequestAnalysisTool 1.2.7.exe`（双击即用，零系统残留）。
-3. **免安装压缩包版 (ZIP)**：`WebRequestAnalysisTool-1.2.7-win.zip`（解压即用，内置免安装运行目录）。
+1. **安装程序包 (NSIS)**：`WebRequestAnalysisTool Setup 1.2.8.exe`（支持自定义安装路径、创建桌面快捷方式与自动卸载）。
+2. **单文件绿色免安装版 (Portable)**：`WebRequestAnalysisTool 1.2.8.exe`（双击即用，零系统残留）。
+3. **免安装压缩包版 (ZIP)**：`WebRequestAnalysisTool-1.2.8-win.zip`（解压即用，内置免安装运行目录）。
 
 ---
 
