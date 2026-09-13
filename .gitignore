@@ -3,3 +3,12 @@ dist/
 history_records/
 history_records/*
 *.log
+*.png
+!icon.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp
+*.webp
+*.code-workspace
+

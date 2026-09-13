@@ -1,4 +1,4 @@
-# Web Request Analysis Tool — 网页请求分析工具 (V1.2.8)
+# Web Request Analysis Tool — 网页请求分析工具 (V1.2.9)
 
 [![GitHub](https://img.shields.io/badge/github-thousy/Web--Request--Analysis--Tool-6366f1?style=flat-flat&logo=github)](https://github.com/thousy/Web-Request-Analysis-Tool)
 [![Electron](https://img.shields.io/badge/electron-31.7.7-blue.svg?style=flat-flat&logo=electron)](https://www.electronjs.org/)
@@ -127,9 +127,9 @@ npm run dev
 npm run dist
 ```
 构建成功后，`dist/` 目录下将同时输出以下三种格式的 Windows 发布产物：
-1. **安装程序包 (NSIS)**：`WebRequestAnalysisTool Setup 1.2.8.exe`（支持自定义安装路径、创建桌面快捷方式与自动卸载）。
-2. **单文件绿色免安装版 (Portable)**：`WebRequestAnalysisTool 1.2.8.exe`（双击即用，零系统残留）。
-3. **免安装压缩包版 (ZIP)**：`WebRequestAnalysisTool-1.2.8-win.zip`（解压即用，内置免安装运行目录）。
+1. **安装程序包 (NSIS)**：`WebRequestAnalysisTool Setup 1.2.9.exe`（支持自定义安装路径、创建桌面快捷方式与自动卸载）。
+2. **单文件绿色免安装版 (Portable)**：`WebRequestAnalysisTool 1.2.9.exe`（双击即用，零系统残留）。
+3. **免安装压缩包版 (ZIP)**：`WebRequestAnalysisTool-1.2.9-win.zip`（解压即用，内置免安装运行目录）。
 
 ---
 

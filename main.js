@@ -86,6 +86,22 @@ function checkBlocked(url) {
   return blockRules.includes(url);
 }
 
+// ─── 解析 URL Fallback IP 与端口工具函数 ───────────────────────────────────────
+function getFallbackIpAndPort(urlStr) {
+  let ipAddress = null;
+  let port = null;
+  try {
+    const parsed = new URL(urlStr);
+    port = parsed.port || (parsed.protocol === 'https:' || parsed.protocol === 'wss:' ? '443' : '80');
+    const hostname = parsed.hostname;
+    const ipRegex = /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$|^\[?[a-fA-F0-9:]+\]?$/;
+    if (ipRegex.test(hostname)) {
+      ipAddress = hostname.replace(/[\[\]]/g, '');
+    }
+  } catch (_) {}
+  return { ipAddress, port };
+}
+
 // ─── 建立 Web 流量嗅探与拦截 ───────────────────────────────────────────────────
 function setupWebRequestSniffer() {
   const filter = { urls: ['http://*/*', 'https://*/*', 'ws://*/*', 'wss://*/*'] };
@@ -153,21 +169,6 @@ function setupWebRequestSniffer() {
 
     callback({ cancel: false });
   });
-
-  const getFallbackIpAndPort = (urlStr) => {
-    let ipAddress = null;
-    let port = null;
-    try {
-      const parsed = new URL(urlStr);
-      port = parsed.port || (parsed.protocol === 'https:' || parsed.protocol === 'wss:' ? '443' : '80');
-      const hostname = parsed.hostname;
-      const ipRegex = /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$|^\[?[a-fA-F0-9:]+\]?$/;
-      if (ipRegex.test(hostname)) {
-        ipAddress = hostname.replace(/[\[\]]/g, '');
-      }
-    } catch (_) {}
-    return { ipAddress, port };
-  };
 
   // 2. 响应头开始接收：捕获响应、状态码判定及目标 IP
   ses.webRequest.onResponseStarted(filter, (details) => {
@@ -361,7 +362,7 @@ function createWindow() {
     },
     backgroundColor: '#080b14',
     show: false,
-    title: 'WebRequestAnalysisTool V1.2.5 — 网页请求分析'
+    title: 'WebRequestAnalysisTool V1.2.9 — 网页请求分析'
   });
 
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
@@ -417,7 +418,7 @@ function createMenu() {
               type: 'info',
               title: '关于 Web Request Analysis Tool',
               message: 'Web Request Analysis Tool 网页请求分析工具',
-              detail: '版本 V1.2.4\n基于 Electron Native WebRequest 构建\n© YouQian Tech'
+              detail: '版本 V1.2.9\n基于 Electron Native WebRequest 构建\n© YouQian Tech'
             });
           }
         }
